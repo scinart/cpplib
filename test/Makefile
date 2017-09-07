@@ -24,10 +24,13 @@ LDFLAGS += -lrt -ldl $(DYN_BOOST_LIB)
 .PHONY: all clean
 
 .DEFAULT_GOAL :=
-all: main-test
+all: main-test test
 
 main-test : $(SRC:%.cpp=%.o)
 	$(CXX) -o $(BINDIR)/$@ $(filter %.o,$^) $(LDFLAGS)
+
+test:
+	./main-test
 
 %.o : %.cpp
 %.o : %.cpp $(DEPDIR)/%.d
