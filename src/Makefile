@@ -20,21 +20,15 @@ SRC := $(wildcard *.cpp) ## all cpp files
 
 CXXFLAGS += -pipe -std=c++14 -g $(INCLUDE)
 LDFLAGS += -lrt -ldl $(DYN_BOOST_LIB)
-LIB = ../src/mylib
 
 .PHONY: all src clean
 
 .DEFAULT_GOAL :=
-all: src main-test test
+all:
 
-src :
-	cd ../src && $(MAKE)
 
-main-test : $(SRC:%.cpp=%.o)
-	$(CXX) -o $(BINDIR)/$@ $(filter %.o,$^) $(LIB) $(LDFLAGS)
-
-test:
-	./main-test
+all : $(SRC:%.cpp=%.o)
+	ar rcs mylib.a $(filter %.o,$^)
 
 %.o : %.cpp
 %.o : %.cpp $(DEPDIR)/%.d

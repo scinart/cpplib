@@ -1,4 +1,5 @@
 *.o
+*.a
 test/main-test
 .d
 .clang_complete
