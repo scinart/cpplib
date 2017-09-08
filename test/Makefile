@@ -20,7 +20,6 @@ SRC := $(wildcard *.cpp) ## all cpp files
 
 DEBUG = t
 ifneq ($(DEBUG), false)
-CXXFLAGS += -DSCINART_CPPLIB_DEBUG=5
 endif
 
 CXXFLAGS += -pipe -std=c++14 -g $(INCLUDE) $(EXTRA_CXXFLAGS)

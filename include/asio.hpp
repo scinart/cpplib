@@ -80,7 +80,8 @@ private:
         if(!r_sem.wait_for(rtimeout))
         {
             s.cancel();
-            throw boost::system::system_error(boost::system::errc::make_error_code(boost::system::errc::resource_unavailable_try_again));
+            // throw boost::system::system_error(boost::system::errc::make_error_code(boost::system::errc::resource_unavailable_try_again));
+            throw boost::system::system_error(boost::asio::error::try_again);
         }
         else if(r_ec)
             throw boost::system::system_error(r_ec);
