@@ -15,6 +15,10 @@ BOOST_AUTO_TEST_SUITE(asio_test)
 
 BOOST_AUTO_TEST_CASE(asio_socket)
 {
+    const int packet_num = 10;
+
+    // TODO:
+    // port should be random.
     boost::timer::auto_cpu_timer timer;
     int port = 19844;
     boost::asio::io_service io_service;
@@ -31,38 +35,46 @@ BOOST_AUTO_TEST_CASE(asio_socket)
         std::this_thread::sleep_for(1s);
         Socket client_socket(*io_service);
         client_socket.connect("localhost", port);
-        for(int i=0;i<10;i++)
-            try{
+
+        // client side
+        // send some packet
+        for(int i=0;i<packet_num;i++)
+            try {
                 std::stringstream ss;
-                ss<<"sending "<<i<<'\n';
                 std::this_thread::sleep_for(200ms);
-#ifdef SCINART_CPPLIB_DEBUG
+#ifdef SCINART_CPPLIB_DEBUG_ASIO
+                ss<<"sending "<<i<<'\n';
                 std::cout<<ss.str()<<std::flush;
 #endif
                 client_socket.write(i);
             }
             catch(...)
             {
+                // currently there is no write failed.
                 std::cout<<"write failed "<<i<<std::endl;
             }
+
+        // read some packet.
         std::vector<char> hello {'H','e','l','l','o',0};
         std::vector<char> recv(6,0);
         client_socket.read(recv);
         BOOST_CHECK(recv == hello);
+
+        // being idle for 2 seconds;
         std::this_thread::sleep_for(2s);
 #ifdef SCINART_CPPLIB_DEBUG
-                std::cout<<"client exiting\n"<<std::flush;
+        std::cout<<"client exiting\n"<<std::flush;
 #endif
     };
     auto client_thread_future = std::async(std::launch::async, client_thread, &io_service);
     acceptor.accept(*server_sock.get_sock_ptr());
-    for(int i=0;i<10;i++)
+    for(int i=0;i<packet_num;i++)
     {
         int value=0;
         server_sock.read(value);
+#ifdef SCINART_CPPLIB_DEBUG_ASIO
         std::stringstream ss;
         ss<<i<< " read\n";
-#ifdef SCINART_CPPLIB_DEBUG
         std::cout<<ss.str()<<std::flush;
 #endif
         BOOST_CHECK(value==i);
@@ -71,9 +83,7 @@ BOOST_AUTO_TEST_CASE(asio_socket)
     int value;
     try
     {
-        std::cout<<"11111111 "<<std::endl;
         server_sock.read(value);
-        std::cout<<"22222222 "<<std::endl;
     }
     catch(std::runtime_error& e)
     {
