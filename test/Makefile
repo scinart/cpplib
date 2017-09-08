@@ -18,9 +18,14 @@ INCLUDE := -I../include
 
 SRC := $(wildcard *.cpp) ## all cpp files
 
-CXXFLAGS += -pipe -std=c++14 -g $(INCLUDE)
-LDFLAGS += -lrt -ldl $(DYN_BOOST_LIB)
-LIB = ../src/mylib
+DEBUG = t
+ifneq ($(DEBUG), false)
+endif
+
+EXTRA_CXXFLAGS =
+CXXFLAGS += -pipe -std=c++14 -g $(INCLUDE) $(EXTRA_CXXFLAGS)
+LDFLAGS += -lrt -ldl -pthread $(DYN_BOOST_LIB)
+LIB = ../src/mylib.a
 
 .PHONY: all src clean
 
