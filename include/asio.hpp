@@ -9,7 +9,6 @@
 #include <memory>
 #include <chrono>
 #include <iostream>
-#include <sys/ioctl.h>
 
 #include "semaphore.hpp"
 
