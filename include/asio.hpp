@@ -12,6 +12,18 @@
 
 #include "semaphore.hpp"
 
+
+/**
+ * Class Socket:
+ * A wrapper of sync boost socket. designed for ONE SOCKET PER THREAD!
+ *
+ * As you know, one socket per thread is very inefficient,
+ * So this should not be used in high network IO programs.
+ *
+ * It is useful when one socket per thread is acceptable.
+ * For example, you have a server program where computing is heavy and IO is negligible.
+ * Or you are just prototyping something.
+ */
 class Socket
 {
     using sock_ptr = std::unique_ptr<boost::asio::ip::tcp::socket>;
