@@ -69,10 +69,9 @@ private:
     void read_(SyncStream& s, const MutableBufferSequence& buffer)
     {
         Semaphore r_sem;
-        bool r_timeout = false;
         boost::system::error_code r_ec;
         boost::asio::async_read(s,buffer,
-                                [this, &r_ec, &r_sem, &r_timeout](const boost::system::error_code& ec_, size_t) {
+                                [this, &r_ec, &r_sem](const boost::system::error_code& ec_, size_t) {
                                     r_ec=ec_;
                                     r_sem.notify();
                                 });
