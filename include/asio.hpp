@@ -37,6 +37,7 @@ class Socket
 public:
     Socket(boost::asio::io_service& io_service_):io_service(io_service_){}
     Socket(Socket&& rhs) = default;
+    Socket& operator=(Socket&& rhs) = default;
     Socket(sock_ptr&& ptr):io_service(ptr->get_io_service()), sock(std::move(ptr)){}
 
     void connect(std::string ip, int port)
