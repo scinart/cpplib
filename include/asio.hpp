@@ -8,7 +8,7 @@
 #include <type_traits>
 #include <memory>
 #include <chrono>
-#include <iostream>
+#include <future>
 
 #include "semaphore.hpp"
 
@@ -103,6 +103,54 @@ private:
     {
         boost::asio::write(s, buffer);
     }
+};
+
+class SyncBoostIO
+{
+public:
+    SyncBoostIO(){}
+    SyncBoostIO(boost::asio::io_service& io_service) { init(io_service); }
+    boost::asio::io_service* p_io_service = nullptr;
+    void init(boost::asio::io_service& io_service)
+    {
+        if(p_io_service != nullptr)
+            throw std::runtime_error("Init twice is probably an error.");
+        p_io_service = &io_service;
+    }
+
+    /**
+     * listen to ipv4 INADDR_ANY:$port
+     * on success, return a newly created sockfd.
+     * on error, a negative number is returned.
+     */
+    void listen(int& port)
+    {
+        assert(p_io_service && "io_service is nullptr");
+        boost::asio::io_service& io_service = *p_io_service;
+        boost::asio::ip::tcp::endpoint endpoint(boost::asio::ip::tcp::v4(), port);
+        p_acceptor = std::make_unique<boost::asio::ip::tcp::acceptor>(io_service, endpoint);
+        p_acceptor->set_option(boost::asio::ip::tcp::acceptor::reuse_address(true));
+        port = p_acceptor->local_endpoint().port();
+    }
+
+    Socket accept()
+    {
+        assert(p_io_service && "must init before listen.");
+        assert(p_acceptor && "must listen before accept");
+        auto server_sock = Socket(std::make_unique<boost::asio::ip::tcp::socket>(*p_io_service));
+        p_acceptor->accept(*(server_sock.get_sock_ptr()));
+        return server_sock;
+    }
+
+    Socket connect(const std::string& ip, int port)
+    {
+        assert(p_io_service && "io_service is nullptr");
+        Socket client_socket(*p_io_service);
+        client_socket.connect(ip, port);
+        return client_socket;
+    }
+private:
+    std::unique_ptr<boost::asio::ip::tcp::acceptor> p_acceptor;
 };
 
 }
