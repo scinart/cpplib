@@ -12,6 +12,8 @@
 
 #include "semaphore.hpp"
 
+namespace oy
+{
 
 /**
  * Class Socket:
@@ -102,5 +104,7 @@ private:
         boost::asio::write(s, buffer);
     }
 };
+
+}
 
 #endif

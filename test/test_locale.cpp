@@ -5,6 +5,8 @@
 #include "locale.hpp"
 #include <algorithm>
 
+using namespace oy;
+
 BOOST_AUTO_TEST_SUITE(gbk_utf8_conversion_test)
 
 BOOST_AUTO_TEST_CASE(test_utf8_to_gbk)

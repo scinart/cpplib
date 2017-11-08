@@ -7,10 +7,60 @@
 #include <atomic>
 #include <chrono>
 
+namespace oy
+{
+
 class Semaphore {
 public:
+    Semaphore (int count_ = 0)
+        : count(count_) {}
+
+    inline void notify()
+    {
+        std::unique_lock<std::mutex> lock(mtx);
+        count++;
+        cv.notify_one();
+    }
+
+    inline void wait()
+    {
+        std::unique_lock<std::mutex> lock(mtx);
+
+        while(count == 0){
+            cv.wait(lock);
+        }
+        count--;
+    }
+    template <typename Duration>
+    bool wait_for(const Duration duration)
+    {
+        std::unique_lock<std::mutex> lock(mtx);
+        auto wait_for_it_success = cv.wait_for(lock, duration, [this]() { return count > 0; });
+        return wait_for_it_success;
+    }
+    inline void reset()
+    {
+        if(mtx.try_lock())
+        {
+            count=0;
+            mtx.unlock();
+        }
+        else
+        {
+            throw std::runtime_error("reset Semaphore failed.");
+        }
+    }
+
+private:
+    std::mutex mtx;
+    std::condition_variable cv;
+    int count;
+};
+
+class Semaphore_chronological {
+public:
     // constexpr unsigned long long int MAX_SEM_WAIT = 123456789;
-    Semaphore (unsigned long long int count_ = 0) : notify_turn(count_){}
+    Semaphore_chronological (unsigned long long int count_ = 0) : notify_turn(count_){}
 
     void notify()
     {
@@ -51,5 +101,7 @@ private:
     unsigned long long int wait_turn = 1;
     unsigned long long int notify_turn = 0;
 };
+
+}
 
 #endif

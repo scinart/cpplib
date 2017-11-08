@@ -11,6 +11,9 @@
 #include <thread>
 #include <vector>
 
+namespace oy
+{
+
 template <typename Type, typename Queue = std::queue<Type> >
 class distributor: std::mutex, std::condition_variable
 {
@@ -78,5 +81,7 @@ private:
         }
     }
 };
+
+}
 
 #endif

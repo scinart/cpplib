@@ -3,6 +3,8 @@
 
 #include <boost/test/unit_test.hpp>
 
+using namespace oy;
+
 template <typename, typename = void> class F { public: int operator()() {return 0;} };
 template <typename Container>
 class F<Container, std::enable_if_t<is_container<std::remove_reference_t<Container>>::value, void> >
