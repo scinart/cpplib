@@ -8,8 +8,10 @@
 namespace oy
 {
 
+template<typename...> using __my_void_t = void;
+
 template <typename T, typename=void> struct is_container : std::false_type {};
-template <typename T>                struct is_container <T, std::__void_t< typename T::value_type > > : std::true_type {};
+template <typename T>                struct is_container <T, __my_void_t< typename T::value_type > > : std::true_type {};
 
 }
 

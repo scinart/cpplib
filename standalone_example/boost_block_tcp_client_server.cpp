@@ -1,19 +1,77 @@
-#ifndef _GITHUB_SCINART_CPPLIB_ASIO_HPP_
-#define _GITHUB_SCINART_CPPLIB_ASIO_HPP_
-
-#include "type_trait.hpp"
+//usr/bin/g++ -g boost_block_tcp_client_server.cpp -lboost_system -pthread -lboost_unit_test_framework -lboost_timer && ./a.out "$@"; rm a.out; exit
+#include <atomic>
 #include <boost/asio.hpp>
+#include <boost/format.hpp>
 #include <boost/optional.hpp>
-#include <string>
-#include <type_traits>
-#include <memory>
+#include <boost/timer/timer.hpp>
+#include <condition_variable>
 #include <chrono>
 #include <future>
+#include <iostream>
+#include <thread>
+#include <memory>
+#include <mutex>
+#include <string>
 
-#include "semaphore.hpp"
+#define BOOST_TEST_MAIN
+#define BOOST_TEST_DYN_LINK
+
+#include <boost/test/unit_test.hpp>
 
 namespace oy
 {
+
+template<typename...> using __my_void_t = void;
+
+template <typename T, typename=void> struct is_container : std::false_type {};
+template <typename T>                struct is_container <T, __my_void_t< typename T::value_type > > : std::true_type {};
+
+class Semaphore {
+public:
+    Semaphore (int count_ = 0)
+        : count(count_) {}
+
+    inline void notify()
+    {
+        std::unique_lock<std::mutex> lock(mtx);
+        count++;
+        cv.notify_one();
+    }
+
+    inline void wait()
+    {
+        std::unique_lock<std::mutex> lock(mtx);
+
+        while(count == 0){
+            cv.wait(lock);
+        }
+        count--;
+    }
+    template <typename Duration>
+    bool wait_for(const Duration duration)
+    {
+        std::unique_lock<std::mutex> lock(mtx);
+        auto wait_for_it_success = cv.wait_for(lock, duration, [this]() { return count > 0; });
+        return wait_for_it_success;
+    }
+    inline void reset()
+    {
+        if(mtx.try_lock())
+        {
+            count=0;
+            mtx.unlock();
+        }
+        else
+        {
+            throw std::runtime_error("reset Semaphore failed.");
+        }
+    }
+
+private:
+    std::mutex mtx;
+    std::condition_variable cv;
+    int count;
+};
 
 /**
  * Class Socket:
@@ -69,7 +127,6 @@ public:
     sock_ptr& get_sock_ptr(){return sock;}
     template<typename Duration> void set_read_timeout (Duration d){rtimeout = std::chrono::duration_cast<decltype(rtimeout)>(d);}
     template<typename Duration> void set_connection_timeout (Duration d){ctimeout = std::chrono::duration_cast<decltype(ctimeout)>(d);}
-    // template<typename Duration> void set_write_timeout(Duration d){wtimeout = std::chrono::duration_cast<decltype(wtimeout)>(d);}
 
     template<typename Container> std::enable_if_t<is_container<std::remove_reference_t<Container>>::value, void> write (Container&& t) { return write(t, t.size()); }
     template<typename Container> std::enable_if_t<is_container<std::remove_reference_t<Container>>::value, void> write (Container&& t, size_t sz) {
@@ -114,7 +171,6 @@ private:
         }
         else if(r_ec)
             throw boost::system::system_error(r_ec);
-        //boost::asio::read(s, buffer);
     }
     template <typename SyncStream, typename MutableBufferSequence>
     void write_(SyncStream& s, const MutableBufferSequence& buffer)
@@ -123,54 +179,111 @@ private:
     }
 };
 
-class SyncBoostIO
-{
-public:
-    SyncBoostIO(){}
-    SyncBoostIO(boost::asio::io_service& io_service) { init(io_service); }
-    boost::asio::io_service* p_io_service = nullptr;
-    void init(boost::asio::io_service& io_service)
-    {
-        if(p_io_service != nullptr)
-            throw std::runtime_error("Init twice is probably an error.");
-        p_io_service = &io_service;
-    }
-
-    /**
-     * listen to ipv4 INADDR_ANY:$port
-     * on success, return a newly created sockfd.
-     * on error, a negative number is returned.
-     */
-    void listen(int& port)
-    {
-        assert(p_io_service && "io_service is nullptr");
-        boost::asio::io_service& io_service = *p_io_service;
-        boost::asio::ip::tcp::endpoint endpoint(boost::asio::ip::tcp::v4(), port);
-        p_acceptor = std::make_unique<boost::asio::ip::tcp::acceptor>(io_service, endpoint);
-        p_acceptor->set_option(boost::asio::ip::tcp::acceptor::reuse_address(true));
-        port = p_acceptor->local_endpoint().port();
-    }
-
-    Socket accept()
-    {
-        assert(p_io_service && "must init before listen.");
-        assert(p_acceptor && "must listen before accept");
-        auto server_sock = Socket(std::make_unique<boost::asio::ip::tcp::socket>(*p_io_service));
-        p_acceptor->accept(*(server_sock.get_sock_ptr()));
-        return server_sock;
-    }
-
-    Socket connect(const std::string& ip, int port)
-    {
-        assert(p_io_service && "io_service is nullptr");
-        Socket client_socket(*p_io_service);
-        client_socket.connect(ip, port);
-        return client_socket;
-    }
-private:
-    std::unique_ptr<boost::asio::ip::tcp::acceptor> p_acceptor;
-};
-
 }
 
-#endif
+using namespace std::chrono_literals;
+using namespace oy;
+
+constexpr int packet_num = 10;
+
+BOOST_AUTO_TEST_SUITE(asio_test)
+
+/**
+ * client_thread
+ * send `packet_num` packet, containing binary 0, 1, 2, ...
+ * read 6 characters, compare with ['H' 'e' 'l' 'l' 'o' 0]
+ * sleep 2s
+ * exit
+ */
+void client_thread(std::string ip, int port, boost::asio::io_service* io_service)
+{
+    std::this_thread::sleep_for(1s);
+    Socket client_socket(*io_service);
+    client_socket.set_connection_timeout(1s);
+    client_socket.connect(ip, port);
+
+    // client side
+    // send some packet
+    for(int i=0;i<packet_num;i++)
+        try {
+            std::cout<<(boost::format("client sending  %1%\n") % i).str()<<std::flush;
+            std::this_thread::sleep_for(10ms);
+            client_socket.write(i);
+            std::this_thread::sleep_for(10ms);
+            client_socket.read(i);
+            std::cout<<(boost::format("client received %1%\n") % i).str()<<std::flush;
+        }
+        catch(...)
+        {
+            // currently there is no write failed.
+            std::cout<<"write failed "<<i<<std::endl;
+        }
+
+    std::cout<<"client stop sending"<<std::endl;
+    std::this_thread::sleep_for(2s);
+    std::cout<<"client exiting"<<std::endl;
+}
+
+/**
+ * server_thread
+ * receive `packet_num` packet, containing binary 0, 1, 2, ...
+ * send 6 characters, compare with ['H' 'e' 'l' 'l' 'o' 0]
+ * sleep 1s
+ * read something, should fail due to timeout, Resource temporarily unavailable
+ * sleep 2s
+ * read something, should fail due to closed socket.
+ * exit
+ */
+
+void server_thread(Socket* server_sock, boost::asio::ip::tcp::acceptor* acceptor)
+{
+    server_sock->set_read_timeout(1s);
+    acceptor->accept(*(server_sock->get_sock_ptr()));
+    int value;
+    try {
+        while(true) {
+            int i;
+            std::this_thread::sleep_for(10ms);
+            server_sock->read(i);
+            std::cout<<(boost::format("server received %1%\n") % i).str()<<std::flush;
+            i++;
+            std::cout<<(boost::format("server sending  %1%\n") % i).str()<<std::flush;
+            std::this_thread::sleep_for(10ms);
+            server_sock->write(i);
+        }
+    } catch(boost::system::system_error& e) {
+        std::cout<<"server reading error " << e.what()<<std::endl;
+        BOOST_CHECK(e.code() == boost::system::errc::resource_unavailable_try_again);
+        std::this_thread::sleep_for(2s);
+    }
+    try {
+        server_sock->read(value);
+    } catch(boost::system::system_error& e) {
+        std::cout<<"server reading error " << e.what()<<std::endl;
+        BOOST_CHECK(e.code() == boost::asio::error::eof);
+    }
+}
+
+
+BOOST_AUTO_TEST_CASE(asio_socket)
+{
+    int port = 0;
+    boost::asio::io_service io_service;
+    auto io_service_work = std::make_unique<boost::asio::io_service::work>(io_service);
+    auto io_service_run = std::async(std::launch::async, [&io_service](){io_service.run();});
+    boost::asio::ip::tcp::endpoint endpoint(boost::asio::ip::tcp::v4(), port);
+    boost::asio::ip::tcp::acceptor acceptor(io_service, endpoint);
+    acceptor.set_option(boost::asio::ip::tcp::acceptor::reuse_address(true));
+    port = acceptor.local_endpoint().port();
+
+    auto server_sock = Socket(std::make_unique<boost::asio::ip::tcp::socket>(io_service));
+
+    auto client_thread_future = std::async(std::launch::async, client_thread, acceptor.local_endpoint().address().to_string(), port, &io_service);
+    auto server_thread_future = std::async(std::launch::async, server_thread, &server_sock, &acceptor);
+
+    client_thread_future.get();
+    server_thread_future.get();
+    io_service_work.reset(nullptr);
+}
+
+BOOST_AUTO_TEST_SUITE_END()
