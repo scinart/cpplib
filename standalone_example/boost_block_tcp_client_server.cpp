@@ -188,13 +188,6 @@ constexpr int packet_num = 10;
 
 BOOST_AUTO_TEST_SUITE(asio_test)
 
-/**
- * client_thread
- * send `packet_num` packet, containing binary 0, 1, 2, ...
- * read 6 characters, compare with ['H' 'e' 'l' 'l' 'o' 0]
- * sleep 2s
- * exit
- */
 void client_thread(std::string ip, int port, boost::asio::io_service* io_service)
 {
     std::this_thread::sleep_for(1s);
@@ -226,10 +219,8 @@ void client_thread(std::string ip, int port, boost::asio::io_service* io_service
 
 /**
  * server_thread
- * receive `packet_num` packet, containing binary 0, 1, 2, ...
- * send 6 characters, compare with ['H' 'e' 'l' 'l' 'o' 0]
- * sleep 1s
- * read something, should fail due to timeout, Resource temporarily unavailable
+ * read integers from client thread, reply the integer increased by 1;
+ * until some time, it should fail due to timeout, Resource temporarily unavailable
  * sleep 2s
  * read something, should fail due to closed socket.
  * exit
