@@ -40,7 +40,7 @@ public:
     Socket(Socket&& rhs) = default;
     Socket& operator=(Socket&& rhs) = default;
     Socket(sock_ptr&& ptr):io_service(ptr->get_io_service()), sock(std::move(ptr)){}
-
+    ~Socket(){ if(sock) sock->shutdown(boost::asio::ip::tcp::socket::shutdown_both, ec); }
     void connect(std::string ip, int port)
     {
         using namespace boost::asio::ip;
