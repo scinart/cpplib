@@ -60,7 +60,7 @@ public:
         {
             // http://www.boost.org/doc/libs/1_66_0/doc/html/boost_asio/reference/basic_socket/cancel/overload1.html
             sock->close(); // Use the close() function to simultaneously cancel the outstanding operations and close the socket.
-            r_sem.wait(); // The handlers for cancelled operations will be passed the boost::asio::error::operation_aborted error. 
+            r_sem.wait(); // The handlers for cancelled operations will be passed the boost::asio::error::operation_aborted error.
             throw boost::system::system_error(boost::asio::error::connection_aborted);
         }
         else if(r_ec)
@@ -78,15 +78,15 @@ public:
         write_(*sock, buffer);
     }
 
-    template<typename T> std::enable_if_t<!is_container<T>::value, void> write (T& t) { return write(&t, 1); }
+    template<typename T> std::enable_if_t<!is_container<T>::value, void> write (const T& t) { return write(&t, 1); }
     template<typename T> std::enable_if_t<!is_container<T>::value, void> write (T* p, size_t nmemb) {
         auto buffer = boost::asio::buffer(p, nmemb * sizeof(T));
         write_(*sock, buffer);
     }
 
 
-    template<typename Container> std::enable_if_t<is_container<std::remove_reference_t<Container>>::value, void> read (Container&& t) { return read(t, t.size()); }
-    template<typename Container> std::enable_if_t<is_container<std::remove_reference_t<Container>>::value, void> read (Container&& t, size_t sz) {
+    template<typename Container> std::enable_if_t<is_container<std::remove_reference_t<Container>>::value, void> read (Container& t) { return read(t, t.size()); }
+    template<typename Container> std::enable_if_t<is_container<std::remove_reference_t<Container>>::value, void> read (Container& t, size_t sz) {
         auto buffer = boost::asio::buffer(t, sz * sizeof(typename std::remove_reference_t<Container>::value_type));
         read_(*sock, buffer);
     }
@@ -142,7 +142,7 @@ public:
      * on success, return a newly created sockfd.
      * on error, a negative number is returned.
      */
-    void listen(int& port)
+    void listen(unsigned short& port)
     {
         assert(p_io_service && "io_service is nullptr");
         boost::asio::io_service& io_service = *p_io_service;
