@@ -118,6 +118,7 @@ public:
         {
             // http://www.boost.org/doc/libs/1_66_0/doc/html/boost_asio/reference/basic_socket/cancel/overload1.html
             sock->close(); // Use the close() function to simultaneously cancel the outstanding operations and close the socket.
+            r_sem.wait();
             throw boost::system::system_error(boost::asio::error::connection_aborted);
         }
         else if(r_ec)
@@ -167,6 +168,7 @@ private:
         if(!r_sem.wait_for(rtimeout))
         {
             s.cancel();
+            r_sem.wait();
             throw boost::system::system_error(boost::asio::error::try_again);
         }
         else if(r_ec)

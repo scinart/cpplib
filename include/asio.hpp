@@ -1,7 +1,6 @@
 #ifndef _GITHUB_SCINART_CPPLIB_ASIO_HPP_
 #define _GITHUB_SCINART_CPPLIB_ASIO_HPP_
 
-#include "type_trait.hpp"
 #include <boost/asio.hpp>
 #include <boost/optional.hpp>
 #include <string>
@@ -14,6 +13,12 @@
 
 namespace oy
 {
+
+// https://stackoverflow.com/questions/27687389/how-does-void-t-work
+// https://www.v2ex.com/t/387904#reply12
+template<typename...> using __my_void_t = void;
+template <typename T, typename=void> struct is_container : std::false_type {};
+template <typename T>                struct is_container <T, __my_void_t< typename T::value_type > > : std::true_type {};
 
 /**
  * Class Socket:

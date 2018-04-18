@@ -1,9 +1,8 @@
 #ifndef  _GITHUB_SCINART_CPPLIB_LOCALE_HPP_
 #define  _GITHUB_SCINART_CPPLIB_LOCALE_HPP_
 
-#include "macro.hpp"
-
 #include <boost/locale.hpp>
+#include <codecvt>
 
 namespace oy
 {
@@ -18,6 +17,8 @@ inline auto gbk_to_wstring(const std::string& gbk_str) { return boost::locale::c
 inline auto wstring_to_gbk(const std::wstring& wstr)   { return boost::locale::conv::from_utf<wchar_t>(wstr, std::string("GBK")); }
 inline auto wchar_to_utf8(const wchar_t& wc)           { return boost::locale::conv::utf_to_utf<char>(&wc, &wc+1); }
 inline auto wchar_to_utf8(const wchar_t* const wc_b, const wchar_t* const wc_e) { return boost::locale::conv::utf_to_utf<char>(wc_b,wc_e); }
+inline std::u32string to_u32string(const std::string& s) { return std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t>{}.from_bytes(s); }
+inline std::string to_utf8(const std::u32string& s)      { return std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t>{}.to_bytes(s); }
 
 inline bool is_utf8_string(const std::string& str)
 {

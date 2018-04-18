@@ -9,15 +9,12 @@ namespace oy
 class RandInt
 {
 public:
-    RandInt():gen(rd()){}
-    int getRandInt(int begin_inclusive, int end_inclusive){
-        std::uniform_int_distribution<> dis(begin_inclusive,end_inclusive);
-        return dis(gen);
-    }
-    int operator()(int begin_inclusive, int end_inclusive){return getRandInt(begin_inclusive, end_inclusive);}
+    RandInt(int begin_inclusive, int end_inclusive):dis(begin_inclusive,end_inclusive){}
+    int operator()(){return dis(gen);}
 private:
-    std::random_device rd;  //Will be used to obtain a seed for the random number engine
-    std::mt19937 gen; //Standard mersenne_twister_engine seeded with rd()
+    std::random_device rd;  // Will be used to obtain a seed for the random number engine
+    std::mt19937 gen;       // Standard mersenne_twister_engine seeded with rd()
+    std::uniform_int_distribution<> dis;
 };
 
 }

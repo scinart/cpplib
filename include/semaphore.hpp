@@ -57,6 +57,7 @@ private:
     int count;
 };
 
+// TODO: has BUG when unsigned long long overflow
 class Semaphore_chronological {
 public:
     // constexpr unsigned long long int MAX_SEM_WAIT = 123456789;

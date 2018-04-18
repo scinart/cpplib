@@ -115,7 +115,11 @@ BOOST_AUTO_TEST_CASE(asio_socket)
     int port = 0;
     boost::asio::io_service io_service;
     auto io_service_work = std::make_unique<boost::asio::io_service::work>(io_service);
-    auto io_service_run = std::async(std::launch::async, [&io_service](){io_service.run();});
+    auto io_service_run1 = std::async(std::launch::async, [&io_service](){io_service.run();});
+    auto io_service_run2 = std::async(std::launch::async, [&io_service](){io_service.run();});
+    auto io_service_run3 = std::async(std::launch::async, [&io_service](){io_service.run();});
+    auto io_service_run4 = std::async(std::launch::async, [&io_service](){io_service.run();});
+
     boost::asio::ip::tcp::endpoint endpoint(boost::asio::ip::tcp::v4(), port);
     boost::asio::ip::tcp::acceptor acceptor(io_service, endpoint);
     acceptor.set_option(boost::asio::ip::tcp::acceptor::reuse_address(true));
