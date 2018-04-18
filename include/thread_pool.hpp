@@ -2,7 +2,7 @@
 #define _GITHUB_SCINART_CPPLIB_THREAD_POOL_HPP_
 
 // source: https://github.com/mlang/wikiwordfreq
-// no copyright provided by the author.
+// modified my be
 
 #include <condition_variable>
 #include <mutex>
@@ -14,64 +14,66 @@
 namespace oy
 {
 
-template <typename Type, typename Queue = std::queue<Type> >
-class distributor: std::mutex, std::condition_variable
-{
-    bool done = false;
-    Queue queue;
-    struct : std::vector<std::thread> {
-        void join() { for_each(begin(), end(), mem_fun_ref(&value_type::join)); }
-    } threads;
+/**
+ * Thread Pool of function signature void(*)(T)
+ */
 
-    using lock_guard = std::lock_guard<std::mutex>;
-    using unique_lock = std::unique_lock<std::mutex>;
+template <typename Type, typename Queue = std::queue<std::remove_reference_t<Type>>>
+class Distributor: Queue, std::mutex, std::condition_variable {
+    typename Queue::size_type capacity;
+    bool done = false;
+    std::vector<std::thread> threads;
 
 public:
     template<typename Function>
-    distributor(Function&& function, unsigned int concurrency = std::thread::hardware_concurrency())
+    Distributor( Function function,
+                 unsigned int concurrency = std::thread::hardware_concurrency(),
+                 typename Queue::size_type capacity_ = std::thread::hardware_concurrency())
+        :capacity(capacity_)
     {
         if (not concurrency)
-            throw std::invalid_argument("Concurrency must not be zero");
+            throw std::invalid_argument("Concurrency must be non-zero");
+        if (not capacity)
+            throw std::invalid_argument("Queue capacity must be non-zero");
 
-        for (unsigned int count {}; count < concurrency; ++count)
-            threads.emplace_back(static_cast<void (distributor::*)(Function)>
-                                 (&distributor::consume), this,
-                                 std::forward<Function>(function));
+        for (unsigned int count {0}; count < concurrency; count += 1)
+            threads.emplace_back(static_cast<void (Distributor::*)(Function)>
+                                 (&Distributor::consume), this, function);
     }
 
-    // disable move
-    distributor(distributor &&) = delete;
-    distributor &operator=(distributor &&) = delete;
+    Distributor(Distributor &&) = default;
+    Distributor &operator=(Distributor &&) = delete;
 
-    template<typename... Args> distributor& operator()(Args&&... args)
+    ~Distributor()
     {
-        unique_lock lock { *this };
-        while (queue.size() == threads.size()) wait(lock);
-        queue.emplace(std::forward<Args>(args)...);
+        {
+            std::lock_guard<std::mutex> guard(*this);
+            done = true;
+            notify_all();
+        }
+        for (auto &&thread: threads) thread.join();
+    }
+
+    void operator()(Type &&value)
+    {
+        std::unique_lock<std::mutex> lock(*this);
+        while (Queue::size() == capacity) wait(lock);
+        Queue::emplace(std::forward<Type>(value));
         notify_one();
-    }
-
-    ~distributor()
-    {
-        lock();
-        done = true;
-        notify_all();
-        unlock();
-        threads.join();
     }
 
 private:
     template <typename Function>
     void consume(Function process)
     {
-        unique_lock lock { *this };
+        std::unique_lock<std::mutex> lock(*this);
         while (true) {
-            if (not queue.empty()) {
-                Type item { std::move(queue.front()) };
-                queue.pop();
+            if (not Queue::empty()) {
+                std::remove_reference_t<Type> item { std::move(Queue::front()) };
+                Queue::pop();
                 notify_one();
                 lock.unlock();
-                process(item);
+                process(std::forward<Type>(item));
                 lock.lock();
             } else if (done) {
                 break;

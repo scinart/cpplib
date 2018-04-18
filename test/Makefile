@@ -39,7 +39,7 @@ main-test : $(SRC:%.cpp=%.o)
 	$(CXX) -o $(BINDIR)/$@ $(filter %.o,$^) $(LIB) $(LDFLAGS)
 
 test:
-	./main-test
+	./main-test --log_level=warning
 
 %.o : %.cpp
 %.o : %.cpp $(DEPDIR)/%.d
