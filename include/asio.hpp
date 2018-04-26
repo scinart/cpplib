@@ -89,6 +89,17 @@ public:
         write_(*sock, buffer);
     }
 
+    template<typename T> T read () {
+        T t;
+        read(t);
+        return t;
+    }
+
+    template<typename T> std::vector<T> read (size_t n) {
+        std::vector<T> v(n);
+        read(v);
+        return v;
+    }
 
     template<typename Container> std::enable_if_t<is_container<std::remove_reference_t<Container>>::value, void> read (Container& t) { return read(t, t.size()); }
     template<typename Container> std::enable_if_t<is_container<std::remove_reference_t<Container>>::value, void> read (Container& t, size_t sz) {
