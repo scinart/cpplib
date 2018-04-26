@@ -54,11 +54,12 @@ public:
         for (auto &&thread: threads) thread.join();
     }
 
-    void operator()(Type &&value)
+    template <typename T>
+    void operator()(T &&value)
     {
         std::unique_lock<std::mutex> lock(*this);
         while (Queue::size() == capacity) wait(lock);
-        Queue::emplace(std::forward<Type>(value));
+        Queue::emplace(std::forward<T>(value));
         notify_one();
     }
 

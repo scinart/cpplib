@@ -29,7 +29,13 @@ Int add_1(Int a)
     return a+Int(1);
 }
 
+void string_op(std::string)
+{
+
 }
+
+}
+
 
 BOOST_AUTO_TEST_SUITE(thread_pool_test)
 BOOST_AUTO_TEST_CASE(test_destructor_finishes_all)
@@ -52,6 +58,22 @@ BOOST_AUTO_TEST_CASE(test_capacity)
     auto t1 = std::chrono::high_resolution_clock::now();
     auto diff_ms = std::chrono::duration_cast<std::chrono::milliseconds>(t1-t0).count();
     BOOST_CHECK_MESSAGE(diff_ms >= 199 && diff_ms <= 220, (std::string("it is actually ") + std::to_string(diff_ms)).c_str());
+}
+
+BOOST_AUTO_TEST_CASE(test_lvalue)
+{
+    std::string s;
+    Distributor<std::string> f(string_op, 4, 4);
+    f(s);
+    f(std::move(s));
+}
+
+BOOST_AUTO_TEST_CASE(test_rvalue)
+{
+    std::string s;
+    Distributor<std::string&&> f(string_op, 4, 4);
+    f(s);
+    f(std::move(s));
 }
 
 
