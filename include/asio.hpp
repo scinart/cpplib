@@ -31,9 +31,12 @@ template <typename T>                struct is_container <T, __my_void_t< typena
  * For example, you have a server program where computing is heavy and IO is negligible.
  * Or you are just prototyping something.
  */
-class Socket
+
+template <typename Transport = boost::asio::ip::tcp>
+class BasicSocket
 {
-    using sock_ptr = std::unique_ptr<boost::asio::ip::tcp::socket>;
+    static_assert(std::is_same<Transport, boost::asio::ip::tcp>::value, "only tcp supported");
+    using sock_ptr = std::unique_ptr<typename Transport::socket>;
     boost::asio::io_service & io_service;
     sock_ptr sock;
     boost::system::error_code ec;
@@ -41,22 +44,23 @@ class Socket
     std::chrono::milliseconds rtimeout = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::seconds(1));
     // std::chrono::milliseconds wtimeout = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::seconds(1));
 public:
-    Socket(boost::asio::io_service& io_service_):io_service(io_service_){}
-    Socket(Socket&& rhs) = default;
-    Socket& operator=(Socket&& rhs) = default;
-    Socket(sock_ptr&& ptr):io_service(ptr->get_io_service()), sock(std::move(ptr)){}
-    ~Socket(){ if(sock) sock->shutdown(boost::asio::ip::tcp::socket::shutdown_both, ec); }
+    BasicSocket(boost::asio::io_service& io_service_):io_service(io_service_){}
+    BasicSocket(BasicSocket&& rhs) = default;
+    BasicSocket& operator=(BasicSocket&& rhs) = default;
+    BasicSocket(sock_ptr&& ptr):io_service(ptr->get_io_service()), sock(std::move(ptr)){}
+    ~BasicSocket(){ if(sock) sock->shutdown(Transport::socket::shutdown_both, ec); }
+    template<typename SettableSocketOption> auto set_option(const SettableSocketOption & option){ return sock->set_option(option); }
     void connect(std::string ip, int port)
     {
         using namespace boost::asio::ip;
-        sock = std::make_unique<tcp::socket>(io_service);
-        tcp::resolver resolver(io_service);
-        tcp::resolver::query query(tcp::v4(), ip, std::to_string(port));
-        tcp::resolver::iterator iterator = resolver.resolve(query);
+        sock = std::make_unique<typename Transport::socket>(io_service);
+        typename Transport::resolver resolver(io_service);
+        typename Transport::resolver::query query(Transport::v4(), ip, std::to_string(port));
+        typename Transport::resolver::iterator iterator = resolver.resolve(query);
         Semaphore r_sem;
         boost::system::error_code r_ec;
         boost::asio::async_connect(*sock, iterator,
-                                   [this, &r_ec, &r_sem](const boost::system::error_code& ec_, tcp::resolver::iterator iter) {
+                                   [this, &r_ec, &r_sem](const boost::system::error_code& ec_, typename Transport::resolver::iterator iter) {
                                        (void)iter;
                                        r_ec=ec_;
                                        r_sem.notify();
@@ -80,13 +84,13 @@ public:
     template<typename Container> std::enable_if_t<is_container<std::remove_reference_t<Container>>::value, void> write (Container&& t) { return write(t, t.size()); }
     template<typename Container> std::enable_if_t<is_container<std::remove_reference_t<Container>>::value, void> write (Container&& t, size_t sz) {
         auto buffer = boost::asio::buffer(t, sz * sizeof(typename std::remove_reference_t<Container>::value_type));
-        write_(*sock, buffer);
+        write_(buffer);
     }
 
     template<typename T> std::enable_if_t<!is_container<T>::value, void> write (const T& t) { return write(&t, 1); }
     template<typename T> std::enable_if_t<!is_container<T>::value, void> write (T* p, size_t nmemb) {
         auto buffer = boost::asio::buffer(p, nmemb * sizeof(T));
-        write_(*sock, buffer);
+        write_(buffer);
     }
 
     template<typename T> T read () {
@@ -119,11 +123,7 @@ private:
     {
         Semaphore r_sem;
         boost::system::error_code r_ec;
-        boost::asio::async_read(s,buffer,
-                                [this, &r_ec, &r_sem](const boost::system::error_code& ec_, size_t) {
-                                    r_ec=ec_;
-                                    r_sem.notify();
-                                });
+        s.async_receive(buffer, [this, &r_ec, &r_sem](const boost::system::error_code& ec_, size_t) { r_ec=ec_; r_sem.notify(); });
         if(!r_sem.wait_for(rtimeout))
         {
             s.cancel(); // This function causes all outstanding asynchronous connect, send and receive operations to finish immediately,
@@ -133,18 +133,20 @@ private:
         else if(r_ec)
             throw boost::system::system_error(r_ec);
     }
-    template <typename SyncStream, typename MutableBufferSequence>
-    void write_(SyncStream& s, const MutableBufferSequence& buffer)
-    {
-        boost::asio::write(s, buffer);
+    template <typename MutableBufferSequence>
+    void write_(const MutableBufferSequence& buffer) {
+        sock->send(buffer);
     }
 };
 
-class SyncBoostIO
+using Socket = BasicSocket<>;
+
+template <typename Transport = boost::asio::ip::tcp>
+class BasicSyncBoostIO
 {
 public:
-    SyncBoostIO(){}
-    SyncBoostIO(boost::asio::io_service& io_service) { init(io_service); }
+    BasicSyncBoostIO(){}
+    BasicSyncBoostIO(boost::asio::io_service& io_service) { init(io_service); }
     boost::asio::io_service* p_io_service = nullptr;
     void init(boost::asio::io_service& io_service)
     {
@@ -162,31 +164,33 @@ public:
     {
         assert(p_io_service && "io_service is nullptr");
         boost::asio::io_service& io_service = *p_io_service;
-        boost::asio::ip::tcp::endpoint endpoint(boost::asio::ip::tcp::v4(), port);
-        p_acceptor = std::make_unique<boost::asio::ip::tcp::acceptor>(io_service, endpoint);
-        p_acceptor->set_option(boost::asio::ip::tcp::acceptor::reuse_address(true));
+        typename Transport::endpoint endpoint(Transport::v4(), port);
+        p_acceptor = std::make_unique<typename Transport::acceptor>(io_service, endpoint);
+        p_acceptor->set_option(typename Transport::acceptor::reuse_address(true));
         port = p_acceptor->local_endpoint().port();
     }
 
-    Socket accept()
+    BasicSocket<Transport> accept()
     {
         assert(p_io_service && "must init before listen.");
         assert(p_acceptor && "must listen before accept");
-        auto server_sock = Socket(std::make_unique<boost::asio::ip::tcp::socket>(*p_io_service));
+        auto server_sock = BasicSocket<Transport>(std::make_unique<typename Transport::socket>(*p_io_service));
         p_acceptor->accept(*(server_sock.get_sock_ptr()));
         return server_sock;
     }
 
-    Socket connect(const std::string& ip, int port)
+    BasicSocket<Transport> connect(const std::string& ip, int port)
     {
         assert(p_io_service && "io_service is nullptr");
-        Socket client_socket(*p_io_service);
+        BasicSocket<Transport> client_socket(*p_io_service);
         client_socket.connect(ip, port);
         return client_socket;
     }
 private:
-    std::unique_ptr<boost::asio::ip::tcp::acceptor> p_acceptor;
+    std::unique_ptr<typename Transport::acceptor> p_acceptor;
 };
+
+using SyncBoostIO = BasicSyncBoostIO<>;
 
 }
 

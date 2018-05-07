@@ -23,10 +23,11 @@ BOOST_AUTO_TEST_SUITE(asio_test)
  * sleep 2s
  * exit
  */
+template <typename Transport>
 void client_thread(int port, boost::asio::io_service* io_service)
 {
     std::this_thread::sleep_for(1s);
-    Socket client_socket(*io_service);
+    BasicSocket<Transport> client_socket(*io_service);
     client_socket.connect("localhost", port);
 
     // client side
@@ -74,9 +75,9 @@ void client_thread(int port, boost::asio::io_service* io_service)
  * exit
  */
 
-void server_thread(Socket* server_sock, boost::asio::ip::tcp::acceptor* acceptor)
+template <typename Transport>
+void server_thread(BasicSocket<Transport>* server_sock)
 {
-    acceptor->accept(*(server_sock->get_sock_ptr()));
     int value;
     for(int i=0;i<packet_num;i++) {
         server_sock->read(value);
@@ -109,7 +110,6 @@ void server_thread(Socket* server_sock, boost::asio::ip::tcp::acceptor* acceptor
     }
 }
 
-
 BOOST_AUTO_TEST_CASE(asio_socket)
 {
     int port = 0;
@@ -125,10 +125,12 @@ BOOST_AUTO_TEST_CASE(asio_socket)
     acceptor.set_option(boost::asio::ip::tcp::acceptor::reuse_address(true));
     port = acceptor.local_endpoint().port();
 
+    boost::asio::ip::tcp::socket ss(io_service);
     auto server_sock = Socket(std::make_unique<boost::asio::ip::tcp::socket>(io_service));
 
-    auto client_thread_future = std::async(std::launch::async, client_thread, port, &io_service);
-    auto server_thread_future = std::async(std::launch::async, server_thread, &server_sock, &acceptor);
+    auto client_thread_future = std::async(std::launch::async, client_thread<boost::asio::ip::tcp>, port, &io_service);
+    acceptor.accept(*(server_sock.get_sock_ptr()));
+    auto server_thread_future = std::async(std::launch::async, server_thread<boost::asio::ip::tcp>, &server_sock);
 
     client_thread_future.get();
     server_thread_future.get();
