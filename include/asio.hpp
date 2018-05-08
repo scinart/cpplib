@@ -16,7 +16,16 @@ namespace oy
 
 // https://stackoverflow.com/questions/27687389/how-does-void-t-work
 // https://www.v2ex.com/t/387904#reply12
+
+#if __GNUC__ <= 4
+template <typename...  > struct __make_void { using type = void; };
+// putting a T here \\_// bypass a gcc4.9 bug.
+//                   |||
+template <typename... T> using __my_void_t = typename __make_void<T...>::type;
+#else
 template<typename...> using __my_void_t = void;
+#endif
+
 template <typename T, typename=void> struct is_container : std::false_type {};
 template <typename T>                struct is_container <T, __my_void_t< typename T::value_type > > : std::true_type {};
 
