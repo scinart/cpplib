@@ -60,6 +60,7 @@ public:
     void close() { sock->close(); }
     void shutdown() { sock->shutdown(Transport::socket::shutdown_both, ec); }
     void cancel() { return sock->cancel(); }
+    operator bool () const { return static_cast<bool>(sock); }
     template<typename SettableSocketOption> auto set_option(const SettableSocketOption & option){ return sock->set_option(option); }
     // TODO:
     // temporary

@@ -42,7 +42,6 @@ public:
         thread_pool(std::function<void(oy::SyncBoostIO*)>([this](oy::SyncBoostIO* sbio){
                     try {
                         std::shared_ptr<oy::Socket> ptr_sock(new oy::Socket(sbio->accept()));
-                        std::cout<<'.'<<std::flush;
                         this->handle_call(std::move(ptr_sock));
                     } catch (const boost::system::system_error& e) {
                         if(e.code() != boost::asio::error::eof)

@@ -8,7 +8,6 @@
 
 #include <functional>
 #include <iostream>
-#include <map>
 #include <atomic>
 #include <memory>
 
@@ -81,28 +80,29 @@ public:
         std::cout << '^' << std::flush;
         async_run(1);
         status = Status::CONNECTING;
-        if(!socket.connect_b(ip,port))
+        try {
+            socket.connect(ip,port);
+        } catch (const boost::system::system_error&)
         {
-            std::cout << '#' << std::flush;
+            io_service_work.reset(nullptr);
+            throw;
         }
-        else
-        {
-            socket.set_option(boost::asio::socket_base::linger(true,0)); // avoid TIME_WAIT
-            has_pending_callback++;
-            boost::asio::async_read(*socket.get_sock_ptr(), boost::asio::buffer(head_buffer),
-                                    [this](const boost::system::system_error& e, size_t sz) { this->boost_callback_1(e,sz); });
-            status = Status::READY;
-            std::cout << '$' << std::flush;
-        }
+        has_pending_callback++;
+        boost::asio::async_read(*socket.get_sock_ptr(), boost::asio::buffer(head_buffer),
+                                [this](const boost::system::system_error& e, size_t sz) { this->boost_callback_1(e,sz); });
+        status = Status::READY;
+        std::cout << '$' << std::flush;
     }
     ~Client() {
-        // std::cout << "Destructor Called" << std::endl;
-        socket.shutdown();
-        socket.cancel();
-        while(has_pending_callback)
+        if(socket)
         {
-            std::cout<<'?'<<std::flush;
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            socket.cancel();
+            socket.shutdown();
+            while(has_pending_callback)
+            {
+                std::cout<<'?'<<std::flush;
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            }
         }
         io_service_work.reset(nullptr);
     }
@@ -114,7 +114,6 @@ public:
     template <typename Duration> void set_read_timeout(Duration&& t) { socket.set_read_timeout(t); }
 
     void boost_callback_1(const boost::system::system_error& e, size_t) {
-        std::cout << '1' << std::flush;
         DecAtomicOnDistruct<decltype(has_pending_callback.load())> d(has_pending_callback);
         if(e.code())
             shutdown(e);
@@ -127,7 +126,6 @@ public:
         }
     }
     void boost_callback_2(const boost::system::system_error& e, size_t) {
-        std::cout << '2' << std::flush;
         DecAtomicOnDistruct<decltype(has_pending_callback.load())> d(has_pending_callback);
         if(e.code())
             shutdown(e);
@@ -264,16 +262,11 @@ private:
         auto old_size = buf.size();
         nlohmann::json::to_cbor(j, buf);
         *(reinterpret_cast<size_t*>(&buf[MAGIC_HEADER_SIZE])) = buf.size()-old_size;
-
-        std::cout << '+' << std::flush;
         boost::asio::async_write(*socket.get_sock_ptr(), boost::asio::buffer(buf),
                                  [this, local_id](const boost::system::system_error& e, size_t) {
-                                     std::cout << '-' << std::flush;
                                      if(e.code())
-                                     {
-                                         std::cout<<'o'<<std::flush;
                                          this->clean_up(local_id,e,{});
-                                     }});
+                                 });
 
 #endif
         return true;
