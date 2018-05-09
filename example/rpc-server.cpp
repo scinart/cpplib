@@ -31,6 +31,7 @@ int main(int argc, char* argv[] )
     srv.bind("sinc", sleep_inc);
     srv.bind("inc", inc);
 
+    srv.async_accept();
     // Run the server loop.
     srv.run();
     return 0;

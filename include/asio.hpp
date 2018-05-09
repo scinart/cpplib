@@ -56,6 +56,7 @@ public:
     BasicSocket(BasicSocket&& rhs) = default;
     BasicSocket& operator=(BasicSocket&& rhs) = default;
     BasicSocket(sock_ptr&& ptr):io_service(ptr->get_io_service()), sock(std::move(ptr)){}
+    BasicSocket(typename Transport::socket&& raw_sock):io_service(raw_sock.get_io_service()), sock(std::make_unique<typename Transport::socket>(std::move(raw_sock))){}
     ~BasicSocket(){ if(sock) sock->shutdown(Transport::socket::shutdown_both, ec); }
     void close() { sock->close(); }
     void shutdown() { sock->shutdown(Transport::socket::shutdown_both, ec); }
@@ -172,6 +173,7 @@ public:
     BasicSyncBoostIO(){}
     BasicSyncBoostIO(boost::asio::io_service& io_service) { init(io_service); }
     boost::asio::io_service* p_io_service = nullptr;
+    auto & get_acceptor() { return *p_acceptor; };
     void init(boost::asio::io_service& io_service)
     {
         if(p_io_service != nullptr)

@@ -39,10 +39,10 @@ public:
         sbio(io_service),
         io_service_work(std::make_unique<boost::asio::io_service::work>(io_service)),
         port(port_),
-        thread_pool(std::function<void(oy::SyncBoostIO*)>([this](oy::SyncBoostIO* sbio){
+        socket(io_service),
+        thread_pool(std::function<void(boost::asio::ip::tcp::socket&&)>([this](boost::asio::ip::tcp::socket&& sock){
                     try {
-                        std::shared_ptr<oy::Socket> ptr_sock(new oy::Socket(sbio->accept()));
-                        this->handle_call(std::move(ptr_sock));
+                        this->handle_call(std::make_shared<oy::Socket>(std::move(sock)));
                     } catch (const boost::system::system_error& e) {
                         if(e.code() != boost::asio::error::eof)
                             std::cout << "server side io error: " << e.what() << std::endl;
@@ -64,13 +64,18 @@ public:
     }
     // will stop after current accept();
     void stop() { _stop = true; }
-    void run() {
-        _stop = false;
-        if(async_io_service_run_thread.empty())
-            async_run(1);
-        while(!_stop)
-            thread_pool(&sbio);
+
+    void async_accept(){ sbio.get_acceptor().async_accept(socket, std::bind(&Server::accept_handler, this, std::placeholders::_1)); }
+    void accept_handler(const boost::system::system_error& e)
+    {
+        if(e.code())
+        {
+            std::cerr << "accept error: " << e.what() << std::endl;
+        }
+        thread_pool(std::move(socket));
+        async_accept();
     }
+    void run(){this->io_service.run();}
     template <typename T> void set_connection_timeout(T t) { connection_timeout = std::chrono::duration_cast<std::chrono::milliseconds>(t); }
     template <typename T> void set_read_timeout(T t) { read_timeout = std::chrono::duration_cast<std::chrono::milliseconds>(t); }
 private:
@@ -131,7 +136,8 @@ private:
         }
     }
     std::map<std::string, std::function<nlohmann::json(nlohmann::json)> > function_map;
-    oy::Distributor<oy::SyncBoostIO*> thread_pool; // thread_pool
+    boost::asio::ip::tcp::socket socket;
+    oy::Distributor<boost::asio::ip::tcp::socket&&> thread_pool; // thread_pool
     std::vector<std::thread> exec_threads;
 
     moodycamel::ConcurrentQueue<QueueType> q;
