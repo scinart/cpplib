@@ -97,7 +97,7 @@ public:
             socket.shutdown();
             while(has_pending_callback)
             {
-                // TODO: maybe semaphore?
+                // maybe semaphore
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
         }
@@ -153,37 +153,37 @@ public:
     ReturnHelper call(std::string name, Args&& ... args)
     {
         std::chrono::seconds* p = nullptr;
-        return call_with_timeout(name, p, std::forward<Args>(args)...);
+        return call_with_timeout(p, name, std::forward<Args>(args)...);
     }
     template <typename Duration, typename ...Args>
-    ReturnHelper call_with_timeout(std::string name, Duration d, Args&& ... args)
+    ReturnHelper call_with_timeout(Duration d, std::string name, Args&& ... args)
     {
-        return call_with_timeout(name, &d, std::forward<Args>(args)...);
+        return call_with_timeout(&d, name, std::forward<Args>(args)...);
     }
 
     // return true if function is registered; registered functions are guaranteed to be called-back.
     template <typename Functor, typename ...Args>
     bool callback(std::string name, Functor f, Args... args) {
         std::chrono::seconds* p = nullptr;
-        return callback_with_timeout(std::move(name), p, std::forward<Functor>(f), std::forward<Args>(args)...);
+        return callback_with_timeout(p, std::forward<Functor>(f), std::move(name), std::forward<Args>(args)...);
     }
     template <typename Duration, typename Functor, typename ...Args>
-    bool callback_with_timeout(std::string name, Duration d, Functor&& f, Args&& ... args) {
-        return callback_with_timeout(name, &d, f, std::forward<Args>(args)...);
+    bool callback_with_timeout(Duration d, Functor&& f, std::string name, Args&& ... args) {
+        return callback_with_timeout(&d, f, name, std::forward<Args>(args)...);
     }
 private:
     template <typename Duration, typename ...Args>
-    ReturnHelper call_with_timeout(std::string name, Duration *d, Args&& ... args)
+    ReturnHelper call_with_timeout(Duration *d, std::string name, Args&& ... args)
     {
         Semaphore sem;
         nlohmann::json ret;
-        if(!callback_with_timeout(name, d, [&sem, &ret](const boost::system::system_error& e, nlohmann::json j){
+        if(!callback_with_timeout(d, [&sem, &ret](const boost::system::system_error& e, nlohmann::json j){
                     if(e.code())
                         ret["boost error"] = e.what();
                     else
                         ret = j;
                     sem.notify();
-                }, std::forward<Args>(args)...))
+                }, name, std::forward<Args>(args)...))
             return ReturnHelper({"call back failed"});
         else
             sem.wait();
@@ -191,7 +191,7 @@ private:
     }
 
     template <typename Duration, typename Functor, typename ...Args>
-    bool callback_with_timeout(std::string name, Duration* d, Functor&& f, Args&& ... args) {
+    bool callback_with_timeout(Duration* d, Functor&& f, std::string name, Args&& ... args) {
     // return true if function is registered; registered functions are guaranteed to be called-back.
     // template <typename Functor, typename ...Args>
     // bool callback(std::string name, Functor f, Args... args) {
@@ -202,7 +202,7 @@ private:
 
         if (status.load() != Status::READY)
         {
-            f(boost::system::system_error(boost::asio::error::bad_descriptor, "TODO: "), {});
+            f(boost::system::system_error(boost::asio::error::bad_descriptor, "socket closed or not connected"), {});
             return true;
         }
         auto previous = pool_vacancy.load();
@@ -216,8 +216,8 @@ private:
         auto local_id = id;
         std::unique_ptr<deadline_timer_t> timer;
         if(d)
-            timer.reset(new deadline_timer_t(io_service));
-        std::unique_ptr<callback_t> pf(new callback_t(f));
+            timer = std::make_unique<deadline_timer_t>(io_service);
+        std::unique_ptr<callback_t> pf = std::make_unique<callback_t>(f);
         while(true) {
             local_id = id++;
             auto expected = handle_pool[local_id % HANDLE_POOL_SIZE].load();
@@ -228,10 +228,9 @@ private:
                 if(d) {
                     timer->expires_from_now(*d);
                     timer->async_wait([local_id, this](const boost::system::system_error& e){
-                            assert (e.code() == boost::asio::error::timed_out ||
-                                    e.code() == boost::asio::error::operation_aborted);
-                            if(e.code() == boost::asio::error::timed_out)
-                                this->clean_up(local_id, boost::system::system_error(boost::asio::error::timed_out, "TODO: "), {});});
+                            assert(e.code() == boost::system::errc::success || e.code() == boost::asio::error::operation_aborted);
+                            if(e.code() == boost::system::errc::success) //successfully timed out -_-//
+                                this->clean_up(local_id, boost::system::system_error(boost::asio::error::timed_out, "timeout"), {});});
                 }
                 pf.release();
                 timer.release();
@@ -240,7 +239,7 @@ private:
         }
         if (status.load() != Status::READY)
         {
-            clean_up(local_id, boost::system::system_error(boost::asio::error::bad_descriptor, "TODO: "), {});
+            clean_up(local_id, boost::system::system_error(boost::asio::error::bad_descriptor, "socket closed"), {});
             return true;
         }
 
@@ -276,10 +275,11 @@ private:
     {
         std::unique_ptr<std::remove_reference_t<decltype(*std::get<2>(t))> > pf   (std::get<2>(t));
         std::unique_ptr<std::remove_reference_t<decltype(*std::get<3>(t))> > timer(std::get<3>(t));
+        if (timer) timer->cancel(); // cancel first to prevent prolonged pf from causing timeout.
         if (pf) (*pf)(e, j);
-        if (timer) timer->cancel();
         pool_vacancy++;
     }
+
     void shutdown(const boost::system::system_error& e)
     {
         while(status != Status::SHUTDOWN)

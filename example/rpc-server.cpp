@@ -13,9 +13,9 @@ int inc(int x)
     return x+1;
 }
 
-int sleep_inc(int sleep_in_seconds, int x)
+int sleep_inc(int sleep_in_ms, int x)
 {
-    std::this_thread::sleep_for(std::chrono::seconds(sleep_in_seconds));
+    std::this_thread::sleep_for(std::chrono::milliseconds(sleep_in_ms));
     return x+1;
 }
 
@@ -33,10 +33,15 @@ int main(int argc, char* argv[] )
 
     srv.async_accept();
     // Run the server loop.
-    srv.async_run(1);
 
-    std::this_thread::sleep_for(std::chrono::seconds(10));
+    if(false)
+    {
+        srv.async_run(1);
+        std::this_thread::sleep_for(std::chrono::seconds(10));
+        srv.stop();
+    }
+    else
+        srv.run();
 
-    srv.stop();
     return 0;
 }
