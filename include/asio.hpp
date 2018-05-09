@@ -58,7 +58,21 @@ public:
     BasicSocket(sock_ptr&& ptr):io_service(ptr->get_io_service()), sock(std::move(ptr)){}
     ~BasicSocket(){ if(sock) sock->shutdown(Transport::socket::shutdown_both, ec); }
     void close() { sock->close(); }
+    void shutdown() { sock->shutdown(Transport::socket::shutdown_both, ec); }
+    void cancel() { return sock->cancel(); }
     template<typename SettableSocketOption> auto set_option(const SettableSocketOption & option){ return sock->set_option(option); }
+    // TODO:
+    // temporary
+    bool connect_b(std::string ip, int port)
+    {
+        try {
+            connect(ip,port);
+            return true;
+        } catch (const boost::system::system_error&)
+        {
+            return false;
+        }
+    }
     void connect(std::string ip, int port)
     {
         using namespace boost::asio::ip;

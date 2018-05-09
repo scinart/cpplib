@@ -42,6 +42,7 @@ public:
         thread_pool(std::function<void(oy::SyncBoostIO*)>([this](oy::SyncBoostIO* sbio){
                     try {
                         std::shared_ptr<oy::Socket> ptr_sock(new oy::Socket(sbio->accept()));
+                        std::cout<<'.'<<std::flush;
                         this->handle_call(std::move(ptr_sock));
                     } catch (const boost::system::system_error& e) {
                         if(e.code() != boost::asio::error::eof)
@@ -90,6 +91,7 @@ private:
             nlohmann::json in_json;
             int id = -1;
             try {
+                socket->read<std::array<uint8_t, MAGIC_HEADER_SIZE> >();
                 in_json = nlohmann::json::from_cbor(socket->read<uint8_t>(socket->read<size_t>()));
                 id = in_json["id"];
             } catch ( const nlohmann::json::exception& e) {

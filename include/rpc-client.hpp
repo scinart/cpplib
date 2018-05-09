@@ -36,7 +36,7 @@ class Client
     {
     public:
         DecAtomicOnDistruct(std::atomic<T>& a_):a(a_){}
-        ~DecAtomicOnDistruct(){a--;}
+        ~DecAtomicOnDistruct(){--a;}
     private:
         std::atomic<T> & a;
     };
@@ -78,30 +78,43 @@ public:
         pool_vacancy(HANDLE_POOL_SIZE),
         has_pending_callback(0)
     {
+        std::cout << '^' << std::flush;
         async_run(1);
         status = Status::CONNECTING;
-        socket.connect(ip,port);
-        has_pending_callback++;
-        boost::asio::async_read(*socket.get_sock_ptr(), boost::asio::buffer(head_buffer),
-                                [this](const boost::system::system_error& e, size_t sz) { this->boost_callback_1(e,sz); });
-        status = Status::READY;
+        if(!socket.connect_b(ip,port))
+        {
+            std::cout << '#' << std::flush;
+        }
+        else
+        {
+            socket.set_option(boost::asio::socket_base::linger(true,0)); // avoid TIME_WAIT
+            has_pending_callback++;
+            boost::asio::async_read(*socket.get_sock_ptr(), boost::asio::buffer(head_buffer),
+                                    [this](const boost::system::system_error& e, size_t sz) { this->boost_callback_1(e,sz); });
+            status = Status::READY;
+            std::cout << '$' << std::flush;
+        }
     }
-    // TODO: DEBUG:
-    // void close() { socket.close(); }
     ~Client() {
-        socket.close();
+        // std::cout << "Destructor Called" << std::endl;
+        socket.shutdown();
+        socket.cancel();
         while(has_pending_callback)
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        {
+            std::cout<<'?'<<std::flush;
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
         io_service_work.reset(nullptr);
     }
     void async_run(unsigned int n) {
         while(n--)
             async_io_service_run_thread.emplace_back(std::async(std::launch::async,[this](){this->io_service.run();}));
     }
-    template <typename T> void set_connection_timeout(T t) { socket.set_connection_timeout(t); }
-    template <typename T> void set_read_timeout(T t) { socket.set_read_timeout(t); }
+    template <typename Duration> void set_connection_timeout(Duration&& t) { socket.set_connection_timeout(t); }
+    template <typename Duration> void set_read_timeout(Duration&& t) { socket.set_read_timeout(t); }
 
     void boost_callback_1(const boost::system::system_error& e, size_t) {
+        std::cout << '1' << std::flush;
         DecAtomicOnDistruct<decltype(has_pending_callback.load())> d(has_pending_callback);
         if(e.code())
             shutdown(e);
@@ -114,6 +127,7 @@ public:
         }
     }
     void boost_callback_2(const boost::system::system_error& e, size_t) {
+        std::cout << '2' << std::flush;
         DecAtomicOnDistruct<decltype(has_pending_callback.load())> d(has_pending_callback);
         if(e.code())
             shutdown(e);
@@ -128,9 +142,10 @@ public:
             }
             tuple_t expected = handle_pool[local_id % HANDLE_POOL_SIZE].load();
             if (!occupied(expected))
-                return shutdown(boost::system::system_error(boost::asio::error::fault, "server response wrong id"));
-
-            if (handle_pool[local_id % HANDLE_POOL_SIZE].compare_exchange_strong(expected, empty_tuple()))
+            {
+                // maybe canceled;
+            }
+            else if (handle_pool[local_id % HANDLE_POOL_SIZE].compare_exchange_strong(expected, empty_tuple()))
                 clean_tuple(expected, boost::system::system_error(boost::system::error_code()), j);
 
             has_pending_callback++;
@@ -142,9 +157,32 @@ public:
     template <typename ...Args>
     ReturnHelper call(std::string name, Args&& ... args)
     {
+        std::chrono::seconds* p = nullptr;
+        return call_with_timeout(name, p, std::forward<Args>(args)...);
+    }
+    template <typename Duration, typename ...Args>
+    ReturnHelper call_with_timeout(std::string name, Duration d, Args&& ... args)
+    {
+        return call_with_timeout(name, &d, std::forward<Args>(args)...);
+    }
+
+    // return true if function is registered; registered functions are guaranteed to be called-back.
+    template <typename Functor, typename ...Args>
+    bool callback(std::string name, Functor f, Args... args) {
+        std::chrono::seconds* p = nullptr;
+        return callback_with_timeout(std::move(name), p, std::forward<Functor>(f), std::forward<Args>(args)...);
+    }
+    template <typename Duration, typename Functor, typename ...Args>
+    bool callback_with_timeout(std::string name, Duration d, Functor&& f, Args&& ... args) {
+        return callback_with_timeout(name, &d, f, std::forward<Args>(args)...);
+    }
+private:
+    template <typename Duration, typename ...Args>
+    ReturnHelper call_with_timeout(std::string name, Duration *d, Args&& ... args)
+    {
         Semaphore sem;
         nlohmann::json ret;
-        if(!callback(name, [&sem, &ret](const boost::system::system_error& e, nlohmann::json j){
+        if(!callback_with_timeout(name, d, [&sem, &ret](const boost::system::system_error& e, nlohmann::json j){
                     if(e.code())
                         ret["boost error"] = e.what();
                     else
@@ -155,12 +193,6 @@ public:
         else
             sem.wait();
         return ReturnHelper(ret);
-    }
-    // return true if function is registered; registered functions are guaranteed to be called-back.
-    template <typename Functor, typename ...Args>
-    bool callback(std::string name, Functor f, Args... args) {
-        std::chrono::seconds* p = nullptr;
-        return callback_with_timeout(std::move(name), p, std::forward<Functor>(f), std::forward<Args>(args)...);
     }
 
     template <typename Duration, typename Functor, typename ...Args>
@@ -223,22 +255,29 @@ public:
         j["args"] = serialize(std::forward<Args>(args)...);
 
 #ifdef DEBUG_SLOW_CALL
+        socket.write(vector<uint8_t>(MAGIC_HEADER_SIZE));
         socket.write(s.size());
         std::this_thread::sleep_for(call_sleep);
         socket.write(s);
 #else
-        std::vector<uint8_t> buf(sizeof(size_t));
+        std::vector<uint8_t> buf(sizeof(size_t) + MAGIC_HEADER_SIZE);
+        auto old_size = buf.size();
         nlohmann::json::to_cbor(j, buf);
-        *(reinterpret_cast<size_t*>(&buf[0])) = buf.size()-sizeof(size_t);
-        try {
-            socket.write(buf);
-        } catch (const boost::system::system_error& e) {
-            clean_up(local_id, e, {});
-        }
+        *(reinterpret_cast<size_t*>(&buf[MAGIC_HEADER_SIZE])) = buf.size()-old_size;
+
+        std::cout << '+' << std::flush;
+        boost::asio::async_write(*socket.get_sock_ptr(), boost::asio::buffer(buf),
+                                 [this, local_id](const boost::system::system_error& e, size_t) {
+                                     std::cout << '-' << std::flush;
+                                     if(e.code())
+                                     {
+                                         std::cout<<'o'<<std::flush;
+                                         this->clean_up(local_id,e,{});
+                                     }});
+
 #endif
         return true;
     }
-private:
     bool occupied(tuple_t& t)
     {
         return std::get<0>(t)==true;
