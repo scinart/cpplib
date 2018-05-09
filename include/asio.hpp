@@ -1,5 +1,4 @@
-#ifndef _GITHUB_SCINART_CPPLIB_ASIO_HPP_
-#define _GITHUB_SCINART_CPPLIB_ASIO_HPP_
+#pragma once
 
 #include <boost/asio.hpp>
 #include <boost/optional.hpp>
@@ -58,6 +57,7 @@ public:
     BasicSocket& operator=(BasicSocket&& rhs) = default;
     BasicSocket(sock_ptr&& ptr):io_service(ptr->get_io_service()), sock(std::move(ptr)){}
     ~BasicSocket(){ if(sock) sock->shutdown(Transport::socket::shutdown_both, ec); }
+    void close() { sock->close(); }
     template<typename SettableSocketOption> auto set_option(const SettableSocketOption & option){ return sock->set_option(option); }
     void connect(std::string ip, int port)
     {
@@ -69,7 +69,7 @@ public:
         Semaphore r_sem;
         boost::system::error_code r_ec;
         boost::asio::async_connect(*sock, iterator,
-                                   [this, &r_ec, &r_sem](const boost::system::error_code& ec_, typename Transport::resolver::iterator iter) {
+                                   [&r_ec, &r_sem](const boost::system::error_code& ec_, typename Transport::resolver::iterator iter) {
                                        (void)iter;
                                        r_ec=ec_;
                                        r_sem.notify();
@@ -132,7 +132,7 @@ private:
     {
         Semaphore r_sem;
         boost::system::error_code r_ec;
-        s.async_receive(buffer, [this, &r_ec, &r_sem](const boost::system::error_code& ec_, size_t) { r_ec=ec_; r_sem.notify(); });
+        s.async_receive(buffer, [&r_ec, &r_sem](const boost::system::error_code& ec_, size_t) { r_ec=ec_; r_sem.notify(); });
         if(!r_sem.wait_for(rtimeout))
         {
             s.cancel(); // This function causes all outstanding asynchronous connect, send and receive operations to finish immediately,
@@ -202,5 +202,3 @@ private:
 using SyncBoostIO = BasicSyncBoostIO<>;
 
 }
-
-#endif
