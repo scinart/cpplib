@@ -33,6 +33,10 @@ int main(int argc, char* argv[] )
 
     srv.async_accept();
     // Run the server loop.
-    srv.run();
+    srv.async_run(1);
+
+    std::this_thread::sleep_for(std::chrono::seconds(10));
+
+    srv.stop();
     return 0;
 }

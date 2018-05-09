@@ -63,15 +63,16 @@ public:
             async_io_service_run_thread.emplace_back(std::async(std::launch::async,[this](){this->io_service.run();}));
     }
     // will stop after current accept();
-    void stop() { _stop = true; }
+    void stop() { sbio.get_acceptor().cancel(); }
 
     void async_accept(){ sbio.get_acceptor().async_accept(socket, std::bind(&Server::accept_handler, this, std::placeholders::_1)); }
     void accept_handler(const boost::system::system_error& e)
     {
-        if(e.code())
-        {
+        if (e.code() == boost::asio::error::operation_aborted)
+            return;
+        else if(e.code())
             std::cerr << "accept error: " << e.what() << std::endl;
-        }
+
         thread_pool(std::move(socket));
         async_accept();
     }
@@ -144,7 +145,6 @@ private:
     std::chrono::milliseconds connection_timeout = std::chrono::milliseconds(1000);
     std::chrono::milliseconds read_timeout = std::chrono::milliseconds(1000);
     std::chrono::milliseconds execution_spin_wait_time = std::chrono::milliseconds(1);
-    bool _stop = true;  // used to interruct run();
     bool _exit = false; // used in destructor;
 };
 
