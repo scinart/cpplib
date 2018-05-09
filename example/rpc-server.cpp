@@ -7,16 +7,16 @@
 
 using namespace std;
 
-int count_words(const string& s)
+int inc(int x)
 {
-    cout << s + "\n" << flush;
-    stringstream ss;
-    ss<<s;
-    string x;
-    unsigned int c=0;
-    while(ss>>x)
-        c++;
-    return c;
+    cout<<to_string(x)+"\n"<<flush;
+    return x+1;
+}
+
+int sleep_inc(int sleep_in_seconds, int x)
+{
+    std::this_thread::sleep_for(std::chrono::seconds(sleep_in_seconds));
+    return x+1;
 }
 
 int main(int argc, char* argv[] )
@@ -28,7 +28,8 @@ int main(int argc, char* argv[] )
     srv.set_read_timeout(std::chrono::milliseconds(1000));
 
     // Binding
-    srv.bind("count_words", count_words);
+    srv.bind("sinc", sleep_inc);
+    srv.bind("inc", inc);
 
     // Run the server loop.
     srv.run();

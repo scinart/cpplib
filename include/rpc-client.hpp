@@ -69,29 +69,26 @@ class Client
         nlohmann::json j;
     };
 public:
-    Client(std::string ip_, unsigned short port_):
+    Client():
+        status(Status::IDLE),
         io_service_work(std::make_unique<boost::asio::io_service::work>(io_service)),
         socket(io_service),
-        ip(ip_),
-        port(port_),
         pool_vacancy(HANDLE_POOL_SIZE),
         has_pending_callback(0)
     {
-        std::cout << '^' << std::flush;
         async_run(1);
+    }
+    Client& connect(std::string ip_, unsigned short port_)
+    {
+        ip = ip_;
+        port = port_;
         status = Status::CONNECTING;
-        try {
-            socket.connect(ip,port);
-        } catch (const boost::system::system_error&)
-        {
-            io_service_work.reset(nullptr);
-            throw;
-        }
+        socket.connect(ip,port);
+        status = Status::READY;
         has_pending_callback++;
         boost::asio::async_read(*socket.get_sock_ptr(), boost::asio::buffer(head_buffer),
                                 [this](const boost::system::system_error& e, size_t sz) { this->boost_callback_1(e,sz); });
-        status = Status::READY;
-        std::cout << '$' << std::flush;
+        return *this;
     }
     ~Client() {
         if(socket)
@@ -100,8 +97,8 @@ public:
             socket.shutdown();
             while(has_pending_callback)
             {
-                std::cout<<'?'<<std::flush;
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                // TODO: maybe semaphore?
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
         }
         io_service_work.reset(nullptr);
@@ -110,8 +107,8 @@ public:
         while(n--)
             async_io_service_run_thread.emplace_back(std::async(std::launch::async,[this](){this->io_service.run();}));
     }
-    template <typename Duration> void set_connection_timeout(Duration&& t) { socket.set_connection_timeout(t); }
-    template <typename Duration> void set_read_timeout(Duration&& t) { socket.set_read_timeout(t); }
+    template <typename Duration> Client& set_connection_timeout(Duration&& t) { socket.set_connection_timeout(t); return *this; }
+    template <typename Duration> Client& set_read_timeout(Duration&& t) { socket.set_read_timeout(t); return *this; }
 
     void boost_callback_1(const boost::system::system_error& e, size_t) {
         DecAtomicOnDistruct<decltype(has_pending_callback.load())> d(has_pending_callback);

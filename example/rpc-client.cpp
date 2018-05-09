@@ -4,6 +4,7 @@
 #include <deque>
 #include <fstream>
 #include "thread_pool.hpp"
+#include "rand.hpp"
 #include "rpc-client.hpp"
 
 #include <chrono>
@@ -15,72 +16,51 @@ using namespace std;
 string g_ip;
 unsigned short g_port;
 
-int g(const string & s, const string & ip, unsigned short port, const string & f)
+template <typename Client>
+int call(Client&& client, int x, std::string name)
 {
     try {
-        oy::rpc::Client client(ip, port);
-        client.set_connection_timeout(std::chrono::milliseconds(50));
-        client.set_read_timeout(std::chrono::milliseconds(1000));
-        return client.call(f, s).as<int>();
-    } catch (...)
-    {
-        return -1;
+        return client.call(name, x).template as<int>();
+    } catch (const boost::system::system_error& e) {
+        cerr << e.what() << endl;
+        return 0;
     }
 }
 
-void f(const string& s)
+void ff(int x, oy::rpc::Client* c)
 {
-    auto r = g(s, g_ip, g_port, "count_words");
-    stringstream ss;
-    ss<<s;
-    string x;
-    unsigned int c=0;
-    while(ss>>x)
-        c++;
-    if(false)
-    {
-        if(r==c)
-            cout<<'.';
-        else
-            cout<<'\'';
-        cout<< flush;
-    }
+    int y;
+    if(!c)
+        y = call(oy::rpc::Client().set_connection_timeout(std::chrono::milliseconds(50)).set_read_timeout(std::chrono::milliseconds(1000)).connect(g_ip, g_port),
+                 x, "inc");
+    else
+        y=call(*c, x, "inc");
+    if(y==x+1)
+        cout<<'.';
+    else
+        cout<<',';
+    cout << flush;
 }
 
-int tmain(int argc, char* argv[] )
+void f(int x)
 {
-    g_ip = argv[1];
-    g_port = stoi(argv[2]);
-    oy::Distributor<string> d(f, std::stoi(argv[3]), std::stoi(argv[3]));
-    string s;
-    std::ifstream fin("all.txt");
-    int count = (argc >= 5)?stoi(argv[4]):INT_MAX;
-    while(getline(fin,s))
-    {
-        d(s);
-        count--;
-        if(count==0)
-            break;
-    }
-    return 0;
-}
-
-using namespace std;
-
-int main(int argc, char *argv[])
-{
-    g_ip = argv[1];
-    g_port = stoi(argv[2]);
-
-    return tmain(argc, argv);
-    oy::rpc::Client client(g_ip, g_port);
+    oy::rpc::Client client;
     client.set_connection_timeout(std::chrono::milliseconds(50));
     client.set_read_timeout(std::chrono::milliseconds(1000));
-    client.callback("count_words", [](const boost::system::system_error& e, nlohmann::json j){
-            cout << "e is " << e.what() << endl;
-            cout << "j is " << j.dump() << endl;
-        }, "1 2 3 4 5");
+    client.connect(g_ip, g_port);
 
-    std::this_thread::sleep_for(1s);
+    ff(x,&client);
+}
+
+int main(int argc, char* argv[] )
+{
+    g_ip = argv[1];
+    g_port = stoi(argv[2]);
+    oy::Distributor<int> d(f, std::stoi(argv[3]), std::stoi(argv[3]));
+    unsigned count = (argc >= 5)?stoi(argv[4]):std::numeric_limits<unsigned>::max();
+
+    oy::RandInt i(std::numeric_limits<int>::min()+1, std::numeric_limits<int>::max()-1);
+    while(count--)
+        d(i());
     return 0;
 }
