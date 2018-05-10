@@ -15,7 +15,7 @@ namespace augs {
         template<typename ...Args>
         trivially_copyable_tuple(Args... args) noexcept {
             // zero-initialize the memory so that delta encoding does not see the padding bytes as different
-            std::memset(this, sizeof(*this), 0);
+            std::memset(this, 0, sizeof(*this));
             new (buf) tuple_type(Args(args)...);
         }
         operator tuple_type () noexcept {
