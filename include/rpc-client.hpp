@@ -47,16 +47,9 @@ class Client
     public:
         template <typename T>
         T as() {
-            if(j.is_object() && j.count("result"))
-                try {
-                    T t = j["result"];
-                    return t;
-                } catch (const nlohmann::json::exception& e) {
-                    std::cout << "json is " << j.dump() << std::endl;
-                    return T();
-                }
-            else
-            {
+            try {
+                return j.at("result").get<T>();
+            } catch (const nlohmann::json::exception& e) {
                 std::cout << "json is " << j.dump() << std::endl;
                 return T();
             }
@@ -109,7 +102,115 @@ public:
     }
     template <typename Duration> Client& set_connection_timeout(Duration&& t) { socket.set_connection_timeout(t); return *this; }
     template <typename Duration> Client& set_read_timeout(Duration&& t) { socket.set_read_timeout(t); return *this; }
+public:
+    template <typename ...Args>
+    auto call(std::string name, Args&& ... args) {
+        return call_with_timeout(static_cast<void*>(nullptr), name, std::forward<Args>(args)...);
+    }
+    template <typename Duration, typename ...Args>
+    auto call_with_timeout(Duration d, std::string name, Args&& ... args) {
+        return call_with_timeout(&d, name, std::forward<Args>(args)...);
+    }
+
+    // return true if function is registered; registered functions are guaranteed to be called-back.
+    template <typename Functor, typename ...Args>
+    bool callback(std::string name, Functor f, Args... args) {
+        return callback_with_timeout(static_cast<void*>(nullptr), std::forward<Functor>(f), std::move(name), std::forward<Args>(args)...);
+    }
+    template <typename Duration, typename Functor, typename ...Args>
+    bool callback_with_timeout(Duration d, Functor&& f, std::string name, Args&& ... args) {
+        return callback_with_timeout(&d, f, name, std::forward<Args>(args)...);
+    }
 private:
+    template <typename Duration, typename ...Args>
+    auto call_with_timeout(Duration *d, std::string name, Args&& ... args)
+    {
+        Semaphore sem;
+        nlohmann::json ret;
+        if(!callback_with_timeout(d, [&sem, &ret](const boost::system::system_error& e, nlohmann::json j){
+                    if(e.code())
+                        j["boost error"] = e.what();
+                    ret = std::move(j);
+                    sem.notify();
+                }, name, std::forward<Args>(args)...))
+            return nlohmann::json({{"error", "call back failed"}});
+        else
+        {
+            sem.wait();
+        }
+        return ret;
+    }
+
+    template <typename Duration, typename Functor, typename ...Args>
+    bool callback_with_timeout(Duration* d, Functor&& f, std::string name, Args&& ... args) {
+    // return true if function is registered; registered functions are guaranteed to be called-back.
+    // template <typename Functor, typename ...Args>
+    // bool callback(std::string name, Functor f, Args... args) {
+        static_assert(std::is_same<typename func_traits<Functor>::args_type, std::tuple<boost::system::system_error, nlohmann::json> >::value,
+                      "Callback function must of type void (boost::system::system_error, nlohmann::json)");
+        static_assert(std::is_same<typename func_traits<Functor>::result_type, void>::value,
+                      "Callback function must of type void (boost::system::system_error, nlohmann::json)");
+
+        if (status.load() != Status::READY)
+        {
+            return false;
+            //f(boost::system::system_error(boost::asio::error::bad_descriptor, "socket closed or not connected"), {});
+            //return true;
+        }
+        auto previous = pool_vacancy.load();
+        while(true) {
+            if (previous == 0)
+                return false;
+            if (pool_vacancy.compare_exchange_weak(previous, previous - 1))
+                break;
+        }
+
+        auto local_id = id;
+        std::unique_ptr<deadline_timer_t> timer;
+        if(d)
+            timer = std::make_unique<deadline_timer_t>(io_service);
+        std::unique_ptr<callback_t> pf = std::make_unique<callback_t>(f);
+        while(true) {
+            local_id = id++;
+            auto expected = handle_pool[local_id % HANDLE_POOL_SIZE].load();
+            if (occupied(expected))
+                continue;
+            auto desired = make_tuple_t(Vacancy::OCCUPIED, local_id, pf.get(), timer.get());
+            if (handle_pool[local_id % HANDLE_POOL_SIZE].compare_exchange_strong(expected, desired)) {
+                if(d) {
+                    timer->expires_from_now(*d);
+                    timer->async_wait([local_id, this](const boost::system::system_error& e){
+                            assert(e.code() == boost::system::errc::success || e.code() == boost::asio::error::operation_aborted);
+                            if(e.code() == boost::system::errc::success) //successfully timed out -_-//
+                                this->clean_up(local_id,
+                                              boost::system::system_error(boost::asio::error::timed_out, "timeout"),
+                                              {{"error", "timeout"}});});
+                }
+                pf.release();
+                timer.release();
+                break;
+            }
+        }
+        if (status.load() != Status::READY)
+        {
+            clean_up(local_id, boost::system::system_error(boost::asio::error::bad_descriptor, "socket closed"), {{"error", "EBADF"}});
+            return true;
+        }
+
+        std::vector<uint8_t> buf(sizeof(size_t) + MAGIC_HEADER_SIZE);
+        auto old_size = buf.size();
+        nlohmann::json::to_cbor({ {"func", name},
+                                  {"id", local_id},
+                                  {"args", serialize(std::forward<Args>(args)...)} }, buf);
+        *(reinterpret_cast<size_t*>(&buf[MAGIC_HEADER_SIZE])) = buf.size()-old_size;
+        boost::asio::async_write(*socket.get_sock_ptr(), boost::asio::buffer(buf),
+                                 [this, local_id](const boost::system::system_error& e, size_t) {
+                                     if(e.code())
+                                         this->clean_up(local_id,e,{{"error", "write failed"}});
+                                 });
+        return true;
+    }
+
     void boost_callback_1(const boost::system::system_error& e, size_t) {
         DecAtomicOnDistruct<decltype(has_pending_callback.load())> d(has_pending_callback);
         if(e.code())
@@ -149,117 +250,6 @@ private:
         }
     }
 
-public:
-    template <typename ...Args>
-    ReturnHelper call(std::string name, Args&& ... args)
-    {
-        std::chrono::seconds* p = nullptr;
-        return call_with_timeout(p, name, std::forward<Args>(args)...);
-    }
-    template <typename Duration, typename ...Args>
-    ReturnHelper call_with_timeout(Duration d, std::string name, Args&& ... args)
-    {
-        return call_with_timeout(&d, name, std::forward<Args>(args)...);
-    }
-
-    // return true if function is registered; registered functions are guaranteed to be called-back.
-    template <typename Functor, typename ...Args>
-    bool callback(std::string name, Functor f, Args... args) {
-        std::chrono::seconds* p = nullptr;
-        return callback_with_timeout(p, std::forward<Functor>(f), std::move(name), std::forward<Args>(args)...);
-    }
-    template <typename Duration, typename Functor, typename ...Args>
-    bool callback_with_timeout(Duration d, Functor&& f, std::string name, Args&& ... args) {
-        return callback_with_timeout(&d, f, name, std::forward<Args>(args)...);
-    }
-private:
-    template <typename Duration, typename ...Args>
-    ReturnHelper call_with_timeout(Duration *d, std::string name, Args&& ... args)
-    {
-        Semaphore sem;
-        nlohmann::json ret;
-        if(!callback_with_timeout(d, [&sem, &ret](const boost::system::system_error& e, nlohmann::json j){
-                    if(e.code())
-                        ret["boost error"] = e.what();
-                    else
-                        ret = j;
-                    sem.notify();
-                }, name, std::forward<Args>(args)...))
-            return ReturnHelper({"call back failed"});
-        else
-            sem.wait();
-        return ReturnHelper(ret);
-    }
-
-    template <typename Duration, typename Functor, typename ...Args>
-    bool callback_with_timeout(Duration* d, Functor&& f, std::string name, Args&& ... args) {
-    // return true if function is registered; registered functions are guaranteed to be called-back.
-    // template <typename Functor, typename ...Args>
-    // bool callback(std::string name, Functor f, Args... args) {
-        static_assert(std::is_same<typename func_traits<Functor>::args_type, std::tuple<boost::system::system_error, nlohmann::json> >::value,
-                      "Callback function must of type void (boost::system::system_error, nlohmann::json)");
-        static_assert(std::is_same<typename func_traits<Functor>::result_type, void>::value,
-                      "Callback function must of type void (boost::system::system_error, nlohmann::json)");
-
-        if (status.load() != Status::READY)
-        {
-            f(boost::system::system_error(boost::asio::error::bad_descriptor, "socket closed or not connected"), {});
-            return true;
-        }
-        auto previous = pool_vacancy.load();
-        while(true) {
-            if (previous == 0)
-                return false;
-            if (pool_vacancy.compare_exchange_weak(previous, previous - 1))
-                break;
-        }
-
-        auto local_id = id;
-        std::unique_ptr<deadline_timer_t> timer;
-        if(d)
-            timer = std::make_unique<deadline_timer_t>(io_service);
-        std::unique_ptr<callback_t> pf = std::make_unique<callback_t>(f);
-        while(true) {
-            local_id = id++;
-            auto expected = handle_pool[local_id % HANDLE_POOL_SIZE].load();
-            if (occupied(expected))
-                continue;
-            auto desired = make_tuple_t(Vacancy::OCCUPIED, local_id, pf.get(), timer.get());
-            if (handle_pool[local_id % HANDLE_POOL_SIZE].compare_exchange_strong(expected, desired)) {
-                if(d) {
-                    timer->expires_from_now(*d);
-                    timer->async_wait([local_id, this](const boost::system::system_error& e){
-                            assert(e.code() == boost::system::errc::success || e.code() == boost::asio::error::operation_aborted);
-                            if(e.code() == boost::system::errc::success) //successfully timed out -_-//
-                                this->clean_up(local_id, boost::system::system_error(boost::asio::error::timed_out, "timeout"), {});});
-                }
-                pf.release();
-                timer.release();
-                break;
-            }
-        }
-        if (status.load() != Status::READY)
-        {
-            clean_up(local_id, boost::system::system_error(boost::asio::error::bad_descriptor, "socket closed"), {});
-            return true;
-        }
-
-        nlohmann::json j;
-        j["func"] = name;
-        j["id"] = local_id;
-        j["args"] = serialize(std::forward<Args>(args)...);
-
-        std::vector<uint8_t> buf(sizeof(size_t) + MAGIC_HEADER_SIZE);
-        auto old_size = buf.size();
-        nlohmann::json::to_cbor(j, buf);
-        *(reinterpret_cast<size_t*>(&buf[MAGIC_HEADER_SIZE])) = buf.size()-old_size;
-        boost::asio::async_write(*socket.get_sock_ptr(), boost::asio::buffer(buf),
-                                 [this, local_id](const boost::system::system_error& e, size_t) {
-                                     if(e.code())
-                                         this->clean_up(local_id,e,{});
-                                 });
-        return true;
-    }
     bool occupied(tuple_t& t)
     {
         return std::get<0>(t)==Vacancy::OCCUPIED;
@@ -289,7 +279,7 @@ private:
                     if (!occupied(expected))
                         continue;
                     if (handle_pool[local_id].compare_exchange_strong(expected, empty_tuple()))
-                        clean_tuple(expected, e, {});
+                        clean_tuple(expected, e, {{"error", "shutdown"}});
                 }
             }
         }
