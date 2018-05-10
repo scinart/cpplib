@@ -13,8 +13,6 @@
 
 #include <cassert>
 
-// #define DEBUG_SLOW_CALL
-
 namespace oy
 {
 
@@ -22,14 +20,13 @@ namespace rpc
 {
 class Client
 {
+    enum class Vacancy : uint8_t { AVAILABLE, OCCUPIED };
+
     using deadline_timer_t = boost::asio::basic_waitable_timer<std::chrono::steady_clock>;
     using callback_t = std::function<void(const boost::system::system_error&, nlohmann::json j)>;
-    using tuple_t = augs::trivially_copyable_tuple<bool,unsigned long long, callback_t*, deadline_timer_t*>;
-    template <typename ... Args>
-    decltype(auto) make_tuple_t(Args... args){ return augs::trivially_copyable_tuple<Args...>(args...); }
+    using tuple_t = augs::trivially_copyable_tuple<Vacancy, unsigned long long, callback_t*, deadline_timer_t*>;
+    template <typename ... Args> decltype(auto) make_tuple_t(Args... args){ return augs::trivially_copyable_tuple<Args...>(args...); }
 
-    static constexpr bool OCCUPIED = true;
-    static constexpr bool AVAILABLE = false;
     template <typename T>
     class DecAtomicOnDistruct
     {
@@ -39,6 +36,7 @@ class Client
     private:
         std::atomic<T> & a;
     };
+    // TODO: use Status
     enum class Status { CONNECTING, READY, TRANSIENT_FAILURE, IDLE, SHUTDOWN };
     std::atomic<Status> status;
     static constexpr int HANDLE_POOL_SIZE = 1000;
@@ -76,8 +74,10 @@ public:
         pool_vacancy(HANDLE_POOL_SIZE),
         has_pending_callback(0)
     {
-        async_run(1);
+        // TODO: here
+        async_run(4);
     }
+
     Client& connect(std::string ip_, unsigned short port_)
     {
         ip = ip_;
@@ -109,7 +109,7 @@ public:
     }
     template <typename Duration> Client& set_connection_timeout(Duration&& t) { socket.set_connection_timeout(t); return *this; }
     template <typename Duration> Client& set_read_timeout(Duration&& t) { socket.set_read_timeout(t); return *this; }
-
+private:
     void boost_callback_1(const boost::system::system_error& e, size_t) {
         DecAtomicOnDistruct<decltype(has_pending_callback.load())> d(has_pending_callback);
         if(e.code())
@@ -149,6 +149,7 @@ public:
         }
     }
 
+public:
     template <typename ...Args>
     ReturnHelper call(std::string name, Args&& ... args)
     {
@@ -223,7 +224,7 @@ private:
             auto expected = handle_pool[local_id % HANDLE_POOL_SIZE].load();
             if (occupied(expected))
                 continue;
-            auto desired = make_tuple_t(OCCUPIED, local_id, pf.get(), timer.get());
+            auto desired = make_tuple_t(Vacancy::OCCUPIED, local_id, pf.get(), timer.get());
             if (handle_pool[local_id % HANDLE_POOL_SIZE].compare_exchange_strong(expected, desired)) {
                 if(d) {
                     timer->expires_from_now(*d);
@@ -248,12 +249,6 @@ private:
         j["id"] = local_id;
         j["args"] = serialize(std::forward<Args>(args)...);
 
-#ifdef DEBUG_SLOW_CALL
-        socket.write(vector<uint8_t>(MAGIC_HEADER_SIZE));
-        socket.write(s.size());
-        std::this_thread::sleep_for(call_sleep);
-        socket.write(s);
-#else
         std::vector<uint8_t> buf(sizeof(size_t) + MAGIC_HEADER_SIZE);
         auto old_size = buf.size();
         nlohmann::json::to_cbor(j, buf);
@@ -263,13 +258,11 @@ private:
                                      if(e.code())
                                          this->clean_up(local_id,e,{});
                                  });
-
-#endif
         return true;
     }
     bool occupied(tuple_t& t)
     {
-        return std::get<0>(t)==true;
+        return std::get<0>(t)==Vacancy::OCCUPIED;
     }
     void clean_tuple(tuple_t& t, const boost::system::system_error& e, nlohmann::json j)
     {
@@ -316,7 +309,7 @@ private:
     tuple_t empty_tuple()
     {
         //auto static t = make_tuple_t(AVAILABLE, 0ull, nullptr, nullptr); // not working.
-        auto static t = make_tuple_t(AVAILABLE, 0ull, static_cast<callback_t*>(nullptr), static_cast<deadline_timer_t*>(nullptr));
+        auto static t = make_tuple_t(Vacancy::AVAILABLE, 0ull, static_cast<callback_t*>(nullptr), static_cast<deadline_timer_t*>(nullptr));
         return t;
     }
 private:
@@ -335,9 +328,6 @@ private:
     std::atomic<int> has_pending_callback;
     std::chrono::milliseconds connection_timeout = std::chrono::milliseconds(1000);
     std::chrono::milliseconds read_timeout = std::chrono::milliseconds(1000);
-#ifdef DEBUG_SLOW_CALL
-    std::chrono::milliseconds call_sleep = std::chrono::milliseconds(2000);
-#endif
 };
 
 }
