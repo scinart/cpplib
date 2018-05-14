@@ -17,15 +17,7 @@ namespace rpc
 class Server
 {
     using QueueType = std::pair<nlohmann::json, std::shared_ptr<oy::Socket> >;
-public:
-    template<typename Functor>
-    void bind(std::string name, Functor f) {
-        function_map[name] = [f](nlohmann::json j) -> nlohmann::json {
-            return call(f,j.template get<typename func_traits<Functor>::args_type>());
-        };
-    }
 
-public:
     boost::asio::io_service io_service;
     oy::SyncBoostIO sbio;
     std::unique_ptr<boost::asio::io_service::work> io_service_work;
@@ -33,6 +25,19 @@ public:
 
     std::vector<std::future<void> > async_io_service_run_thread;
 
+    std::map<std::string, std::function<nlohmann::json(nlohmann::json)> > function_map;
+    boost::asio::ip::tcp::socket socket;
+
+    oy::Distributor<boost::asio::ip::tcp::socket&&> thread_pool; // threads for read socket.
+    std::vector<std::thread> exec_threads;
+
+    moodycamel::ConcurrentQueue<QueueType> q;
+    std::chrono::milliseconds connection_timeout = std::chrono::milliseconds(1000);
+    std::chrono::milliseconds read_timeout = std::chrono::milliseconds(300000);
+    std::chrono::milliseconds execution_spin_wait_time = std::chrono::milliseconds(1);
+    bool _exit = false; // used in destructor;
+
+public:
     // pending_connection is the max number of threads which the server accepted but not yet attach a runner to it.
     // pending_connection 是已经accept，但服务器没有线程去处理它的线程的最大个数
     Server(unsigned short port_, unsigned short n_thread, unsigned short pending_connection):
@@ -58,24 +63,32 @@ public:
         for(auto& i : exec_threads) i.join();
         io_service_work.reset(nullptr);
     }
-    void async_run(unsigned int n) {
-        while(n--)
-            async_io_service_run_thread.emplace_back(std::async(std::launch::async,[this](){this->io_service.run();}));
-    }
-    // will stop after current accept();
-    void stop() { sbio.get_acceptor().cancel(); }
-
-    void async_accept(){ sbio.get_acceptor().async_accept(socket, std::bind(&Server::accept_handler, this, std::placeholders::_1)); }
-    void accept_handler(const boost::system::system_error& e)
-    {
+    void accept_handler(const boost::system::system_error& e) {
         if (e.code() == boost::asio::error::operation_aborted)
             return;
         else if(e.code())
             std::cerr << "accept error: " << e.what() << std::endl;
-
         thread_pool(std::move(socket));
         async_accept();
     }
+    void async_accept(){
+        sbio.get_acceptor().async_accept(socket, std::bind(&Server::accept_handler, this, std::placeholders::_1));
+    }
+    void async_run(unsigned int n) {
+        while(n--)
+            async_io_service_run_thread.emplace_back(std::async(std::launch::async,[this](){this->io_service.run();}));
+    }
+
+    template<typename Functor>
+    void bind(std::string name, Functor f) {
+        function_map[name] = [f](nlohmann::json j) -> nlohmann::json {
+            return call(f,j.template get<typename func_traits<Functor>::args_type>());
+        };
+    }
+
+    // will stop after current accept();
+    void stop() { sbio.get_acceptor().cancel(); }
+
     void run(){this->io_service.run();}
     template <typename T> void set_connection_timeout(T t) { connection_timeout = std::chrono::duration_cast<std::chrono::milliseconds>(t); }
     template <typename T> void set_read_timeout(T t) { read_timeout = std::chrono::duration_cast<std::chrono::milliseconds>(t); }
@@ -138,16 +151,6 @@ private:
             std::this_thread::sleep_for(execution_spin_wait_time);
         }
     }
-    std::map<std::string, std::function<nlohmann::json(nlohmann::json)> > function_map;
-    boost::asio::ip::tcp::socket socket;
-    oy::Distributor<boost::asio::ip::tcp::socket&&> thread_pool; // thread_pool
-    std::vector<std::thread> exec_threads;
-
-    moodycamel::ConcurrentQueue<QueueType> q;
-    std::chrono::milliseconds connection_timeout = std::chrono::milliseconds(1000);
-    std::chrono::milliseconds read_timeout = std::chrono::milliseconds(1000);
-    std::chrono::milliseconds execution_spin_wait_time = std::chrono::milliseconds(1);
-    bool _exit = false; // used in destructor;
 };
 
 }
