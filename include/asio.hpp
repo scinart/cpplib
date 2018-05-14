@@ -63,18 +63,6 @@ public:
     void cancel() { return sock->cancel(); }
     operator bool () const { return static_cast<bool>(sock); }
     template<typename SettableSocketOption> auto set_option(const SettableSocketOption & option){ return sock->set_option(option); }
-    // TODO:
-    // temporary
-    bool connect_b(std::string ip, int port)
-    {
-        try {
-            connect(ip,port);
-            return true;
-        } catch (const boost::system::system_error&)
-        {
-            return false;
-        }
-    }
     void connect(std::string ip, int port)
     {
         using namespace boost::asio::ip;
@@ -95,7 +83,7 @@ public:
             // http://www.boost.org/doc/libs/1_66_0/doc/html/boost_asio/reference/basic_socket/cancel/overload1.html
             sock->close(); // Use the close() function to simultaneously cancel the outstanding operations and close the socket.
             r_sem.wait(); // The handlers for cancelled operations will be passed the boost::asio::error::operation_aborted error.
-            throw boost::system::system_error(boost::asio::error::connection_aborted);
+            throw boost::system::system_error(boost::asio::error::timed_out);
         }
         else if(r_ec)
             throw boost::system::system_error(r_ec);

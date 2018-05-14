@@ -92,6 +92,8 @@ private:
         return write_json(std::move(socket), {{"id", id}, {"error",s}});
     }
     void handle_call(std::shared_ptr<oy::Socket> socket) {
+        socket->set_connection_timeout(connection_timeout);
+        socket->set_read_timeout(read_timeout);
         do {
             nlohmann::json in_json;
             int id = -1;

@@ -19,8 +19,8 @@ INCLUDE := -I../include
 SRC := $(wildcard *.cpp) ## all cpp files
 
 EXTRA_CXXFLAGS =
-CXXFLAGS += -pipe -std=c++14 -g $(INCLUDE) $(EXTRA_CXXFLAGS)
-LDFLAGS += -lrt -ldl -pthread $(DYN_BOOST_LIB)
+CXXFLAGS += -pipe -std=c++17 -g $(INCLUDE) $(EXTRA_CXXFLAGS)
+LDFLAGS += -lrt -ldl -pthread $(DYN_BOOST_LIB) -latomic
 LIB = ../src/mylib.a
 
 .PHONY: all src clean

@@ -25,6 +25,7 @@ class Client
     using deadline_timer_t = boost::asio::basic_waitable_timer<std::chrono::steady_clock>;
     using callback_t = std::function<void(const boost::system::system_error&, nlohmann::json j)>;
     using tuple_t = augs::trivially_copyable_tuple<Vacancy, unsigned long long, callback_t*, deadline_timer_t*>;
+    using second_t = std::chrono::seconds;
     template <typename ... Args> decltype(auto) make_tuple_t(Args... args){ return augs::trivially_copyable_tuple<Args...>(args...); }
 
     template <typename T>
@@ -105,7 +106,7 @@ public:
 public:
     template <typename ...Args>
     auto call(std::string name, Args&& ... args) {
-        return call_with_timeout(static_cast<void*>(nullptr), name, std::forward<Args>(args)...);
+        return call_with_timeout(static_cast<second_t*>(nullptr), name, std::forward<Args>(args)...);
     }
     template <typename Duration, typename ...Args>
     auto call_with_timeout(Duration d, std::string name, Args&& ... args) {
@@ -115,7 +116,7 @@ public:
     // return true if function is registered; registered functions are guaranteed to be called-back.
     template <typename Functor, typename ...Args>
     bool callback(std::string name, Functor f, Args... args) {
-        return callback_with_timeout(static_cast<void*>(nullptr), std::forward<Functor>(f), std::move(name), std::forward<Args>(args)...);
+        return callback_with_timeout(static_cast<second_t*>(nullptr), std::forward<Functor>(f), std::move(name), std::forward<Args>(args)...);
     }
     template <typename Duration, typename Functor, typename ...Args>
     bool callback_with_timeout(Duration d, Functor&& f, std::string name, Args&& ... args) {
