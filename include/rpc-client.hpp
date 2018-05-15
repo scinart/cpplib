@@ -199,6 +199,7 @@ private:
         }
 
         std::vector<uint8_t> buf(sizeof(size_t) + MAGIC_HEADER_SIZE);
+        std::copy(MAGIC_HEADER.begin(), MAGIC_HEADER.end(), buf.begin());
         auto old_size = buf.size();
         nlohmann::json::to_cbor({ {"func", name},
                                   {"id", local_id},
@@ -214,10 +215,14 @@ private:
 
     void boost_callback_1(const boost::system::system_error& e, size_t) {
         DecAtomicOnDistruct<decltype(has_pending_callback.load())> d(has_pending_callback);
+        size_t sz = *reinterpret_cast<size_t*>(&head_buffer[MAGIC_HEADER_SIZE]);
         if(e.code())
             shutdown(e);
+        else if (!std::equal(MAGIC_HEADER.begin(), MAGIC_HEADER.end(), head_buffer.begin()))
+            shutdown(boost::system::system_error(boost::system::errc::make_error_code(boost::system::errc::protocol_error), "magic number wrong"));
+        else if (sz > MAX_BODY_LENGTH)
+            shutdown(boost::system::system_error(boost::system::errc::make_error_code(boost::system::errc::file_too_large), "request body too large"));
         else {
-            size_t sz = *reinterpret_cast<size_t*>(&head_buffer[MAGIC_HEADER_SIZE]);
             read_buffer.resize(sz);
             has_pending_callback++;
             boost::asio::async_read(*socket.get_sock_ptr(), boost::asio::buffer(read_buffer),
@@ -312,7 +317,9 @@ private:
     std::vector<std::future<void> > async_io_service_run_thread;
     unsigned long long id = 0;
     std::atomic<unsigned int> pool_vacancy; // roughly vacancy in handle_pool, may be less than real value.
-    constexpr static int MAGIC_HEADER_SIZE = 8;
+    constexpr static std::array<uint8_t, 8> MAGIC_HEADER = {'p','h','i','l','b','a','b','a'};
+    constexpr static int MAGIC_HEADER_SIZE = MAGIC_HEADER.size();
+    constexpr static int MAX_BODY_LENGTH = 12345678;
     std::array<uint8_t, sizeof(size_t) + MAGIC_HEADER_SIZE> head_buffer;
     std::vector<uint8_t> read_buffer;
     std::array<std::atomic<tuple_t>, HANDLE_POOL_SIZE> handle_pool;

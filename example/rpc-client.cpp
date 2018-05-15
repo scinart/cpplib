@@ -44,6 +44,7 @@ void ff(int x, int sleep, oy::rpc::Client* c)
     const int TIMEOUT = 1000;
     const int TOLERANCE = 200;
     auto y = c->call_with_timeout(std::chrono::milliseconds(TIMEOUT), "sinc", sleep, x);
+    // std::cout << y.dump() << std::endl;
     char ok = '-';
     if (y.count("error"))
     {

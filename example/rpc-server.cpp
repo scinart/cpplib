@@ -3,7 +3,7 @@
 #include <sstream>
 #include <deque>
 #include <iostream>
-#include <boost/lexicon_cast.hpp>
+#include <boost/lexical_cast.hpp>
 #include "rpc-server.hpp"
 
 using namespace std;
@@ -25,7 +25,7 @@ int main(int argc, char* argv[] )
     static_cast<void>(argc);
      // Creating a server that listens on port 8080
     const int capacity = 40;
-    unsigned short port = boost::lexicon_cast<unsigned short>(argv[1]);
+    unsigned short port = boost::lexical_cast<unsigned short>(argv[1]);
     oy::rpc::Server srv(capacity*2, capacity);
     srv.set_read_timeout(std::chrono::milliseconds(1000));
 

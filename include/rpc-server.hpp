@@ -36,6 +36,10 @@ class Server
     std::chrono::milliseconds execution_spin_wait_time = std::chrono::milliseconds(1);
     bool _exit = false; // used in destructor;
 
+    constexpr static std::array<uint8_t, 8> MAGIC_HEADER = {'p','h','i','l','b','a','b','a'};
+    constexpr static int MAGIC_HEADER_SIZE = MAGIC_HEADER.size();
+    constexpr static int MAX_BODY_LENGTH = 12345678;
+
 public:
     // pending_connection is the max number of threads which the server accepted but not yet attach a runner to it.
     // pending_connection 是已经accept，但服务器没有线程去处理它的线程的最大个数
@@ -99,9 +103,9 @@ public:
     template <typename T> void set_connection_timeout(T t) { connection_timeout = std::chrono::duration_cast<std::chrono::milliseconds>(t); }
     template <typename T> void set_read_timeout(T t) { read_timeout = std::chrono::duration_cast<std::chrono::milliseconds>(t); }
 private:
-    constexpr static int MAGIC_HEADER_SIZE = 8;
     void write_json(std::shared_ptr<oy::Socket> socket, nlohmann::json j) {
         std::vector<uint8_t> buf(sizeof(size_t) + MAGIC_HEADER_SIZE);
+        std::copy(MAGIC_HEADER.begin(), MAGIC_HEADER.end(), buf.begin());
         auto old_size = buf.size();
         nlohmann::json::to_cbor(j, buf);
         *(reinterpret_cast<size_t*>(&buf[MAGIC_HEADER_SIZE])) = buf.size() - old_size;
@@ -117,8 +121,13 @@ private:
             nlohmann::json in_json;
             int id = -1;
             try {
-                socket->read<std::array<uint8_t, MAGIC_HEADER_SIZE> >();
-                in_json = nlohmann::json::from_cbor(socket->read<uint8_t>(socket->read<size_t>()));
+                auto header_buffer = socket->read<std::array<uint8_t, MAGIC_HEADER_SIZE + sizeof(size_t)> >();
+                size_t sz = *reinterpret_cast<size_t*>(&header_buffer[MAGIC_HEADER_SIZE]);
+                if (!std::equal(MAGIC_HEADER.begin(), MAGIC_HEADER.end(), header_buffer.begin()))
+                    throw nlohmann::json::other_error::create(0, "magic number wrong.");
+                if (sz > MAX_BODY_LENGTH)
+                    throw nlohmann::json::other_error::create(0, "request body too large.");
+                in_json = nlohmann::json::from_cbor(socket->read<uint8_t>(sz));
                 id = in_json["id"];
             } catch ( const nlohmann::json::exception& e) {
                 write_error(socket, id, e.what());
