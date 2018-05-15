@@ -21,7 +21,6 @@ class Server
     boost::asio::io_service io_service;
     oy::SyncBoostIO sbio;
     std::unique_ptr<boost::asio::io_service::work> io_service_work;
-    unsigned short port;
 
     std::vector<std::future<void> > async_io_service_run_thread;
 
@@ -40,10 +39,9 @@ class Server
 public:
     // pending_connection is the max number of threads which the server accepted but not yet attach a runner to it.
     // pending_connection 是已经accept，但服务器没有线程去处理它的线程的最大个数
-    Server(unsigned short port_, unsigned short n_thread, unsigned short pending_connection):
+    Server(unsigned short n_thread, unsigned short pending_connection):
         sbio(io_service),
         io_service_work(std::make_unique<boost::asio::io_service::work>(io_service)),
-        port(port_),
         socket(io_service),
         thread_pool(std::function<void(boost::asio::ip::tcp::socket&&)>([this](boost::asio::ip::tcp::socket&& sock){
                     try {
@@ -51,11 +49,19 @@ public:
                     } catch (const boost::system::system_error& e) {
                         if(e.code() != boost::asio::error::eof)
                             std::cout << "server side io error: " << e.what() << std::endl;
-                    }}), n_thread, std::max(decltype(pending_connection)(1), pending_connection))
-    {
+                    }}), n_thread, std::max(decltype(pending_connection)(1), pending_connection)) {
         bind("", [](int)->int{return 0;}); // used for heartbeat.
         for(auto i=0u; i<n_thread; i++)
             exec_threads.emplace_back([this](){this->execution();});
+    }
+
+    unsigned short listen() {
+        unsigned short port=0;
+        sbio.listen(port);
+        return port;
+    }
+
+    void listen(unsigned short port) {
         sbio.listen(port);
     }
     ~Server() {
