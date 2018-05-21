@@ -37,8 +37,9 @@ class Client
     private:
         std::atomic<T> & a;
     };
-    // TODO: use Status
-    enum class Status { CONNECTING, READY, TRANSIENT_FAILURE, IDLE, SHUTDOWN };
+public:                                                           //                                on error
+    enum class Status { CONNECTING, READY, IDLE, SHUTTING_DOWN }; // IDLE -> CONNECTING -> READY -------------> SHUTTING_DOWN -> IDLE;
+private:
     std::atomic<Status> status;
     static constexpr int HANDLE_POOL_SIZE = 1000;
 
@@ -97,6 +98,7 @@ public:
         }
         io_service_work.reset(nullptr);
     }
+    auto& get_status() const { return status; }
     void async_run(unsigned int n) {
         while(n--)
             async_io_service_run_thread.emplace_back(std::async(std::launch::async,[this](){this->io_service.run();}));
@@ -271,12 +273,12 @@ private:
 
     void shutdown(const boost::system::system_error& e)
     {
-        while(status != Status::SHUTDOWN)
+        while(true)
         {
             auto old_status = status.load();
-            if (old_status == Status::SHUTDOWN)
+            if (old_status == Status::IDLE || old_status == Status::SHUTTING_DOWN)
                 return;
-            if(status.compare_exchange_strong(old_status, Status::SHUTDOWN))
+            if(status.compare_exchange_strong(old_status, Status::SHUTTING_DOWN))
             {
                 auto local_id = id;
                 while(pool_vacancy != HANDLE_POOL_SIZE) {
@@ -287,6 +289,7 @@ private:
                     if (handle_pool[local_id].compare_exchange_strong(expected, empty_tuple()))
                         clean_tuple(expected, e, {{"error", "shutdown"}});
                 }
+                status = Status::IDLE;
             }
         }
     }
