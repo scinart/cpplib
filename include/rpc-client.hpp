@@ -80,9 +80,6 @@ public:
         status = Status::CONNECTING;
         socket.connect(ip,port);
         status = Status::READY;
-        has_pending_callback++;
-        boost::asio::async_read(*socket.get_sock_ptr(), boost::asio::buffer(head_buffer),
-                                [this](const boost::system::system_error& e, size_t sz) { this->boost_callback_1(e,sz); });
         return *this;
     }
     ~Client() {
@@ -125,6 +122,12 @@ public:
         return callback_with_timeout(&d, f, name, std::forward<Args>(args)...);
     }
 private:
+    void register_callback() {
+        has_pending_callback++;
+        boost::asio::async_read(*socket.get_sock_ptr(), boost::asio::buffer(head_buffer),
+                                [this](const boost::system::system_error& e, size_t sz) { this->boost_callback_1(e,sz); });
+    }
+
     template <typename Duration, typename ...Args>
     auto call_with_timeout(Duration *d, std::string name, Args&& ... args)
     {
@@ -200,6 +203,16 @@ private:
             return true;
         }
 
+        while(true)
+        {
+            auto count = callback_counter.load();
+            if (callback_counter.compare_exchange_strong(count, count+1))
+            {
+                if (count == 0)
+                    register_callback();
+                break;
+            }
+        }
         std::vector<uint8_t> buf(sizeof(size_t) + MAGIC_HEADER_SIZE);
         std::copy(MAGIC_HEADER.begin(), MAGIC_HEADER.end(), buf.begin());
         auto old_size = buf.size();
@@ -252,9 +265,12 @@ private:
             else if (handle_pool[local_id % HANDLE_POOL_SIZE].compare_exchange_strong(expected, empty_tuple()))
                 clean_tuple(expected, boost::system::system_error(boost::system::error_code()), j);
 
-            has_pending_callback++;
-            boost::asio::async_read(*socket.get_sock_ptr(), boost::asio::buffer(head_buffer),
-                                    [this](const boost::system::system_error& e, size_t sz) { this->boost_callback_1(e,sz); });
+            auto count = callback_counter.load();
+            if (count >= 2 || !callback_counter.compare_exchange_strong(count, 0u))
+            {
+                callback_counter--;
+                register_callback();
+            }
         }
     }
 
@@ -327,6 +343,7 @@ private:
     std::vector<uint8_t> read_buffer;
     std::array<std::atomic<tuple_t>, HANDLE_POOL_SIZE> handle_pool;
     std::atomic<int> has_pending_callback;
+    std::atomic<unsigned int> callback_counter;
     std::chrono::milliseconds connection_timeout = std::chrono::milliseconds(1000);
     std::chrono::milliseconds read_timeout = std::chrono::milliseconds(1000);
 };
