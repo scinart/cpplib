@@ -136,7 +136,7 @@ private:
     {
         Semaphore r_sem;
         boost::system::error_code r_ec;
-        s.async_receive(buffer, [&r_ec, &r_sem](const boost::system::error_code& ec_, size_t) { r_ec=ec_; r_sem.notify(); });
+        boost::asio::async_read(s,buffer,[&r_ec, &r_sem](const boost::system::error_code& ec_, size_t) { r_ec=ec_; r_sem.notify(); });
         if(!r_sem.wait_for(rtimeout))
         {
             s.cancel(); // This function causes all outstanding asynchronous connect, send and receive operations to finish immediately,
@@ -148,7 +148,7 @@ private:
     }
     template <typename MutableBufferSequence>
     void write_(const MutableBufferSequence& buffer) {
-        sock->send(buffer);
+        boost::asio::write(*sock, buffer);
     }
 };
 
