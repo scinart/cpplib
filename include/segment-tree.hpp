@@ -2,7 +2,6 @@
 #define GITHUB_SCINART_CPPLIB_SEGMENT_TREE_HPP_
 
 #include <vector>
-#include <iostream>
 
 namespace oy {
 
@@ -89,9 +88,9 @@ template <typename ValueType_, typename MarkType_>
 class SegmentTree
 {
 
-#pragma push_macro("ind")
-#ifdef ind
-#undef ind
+#pragma push_macro("indexof")
+#ifdef indexof
+#undef indexof
 #endif
 #define indexof(l,r) ((l+1==r)?(2*l):((l+r)/2*2-1))
 
@@ -102,14 +101,6 @@ private:
     const int N;
     std::vector<ValueType> v;
     std::vector<MarkType> m;
-public:
-    void debug()
-    {
-        for(int i=0;i<v.size();i++)
-            std::cout << v[i] << ' ';std::cout<<'\n';
-        for(int i=0;i<v.size();i++)
-            std::cout << m[i].get() << ' ';std::cout<<'\n';
-    }
 public:
     SegmentTree(size_t N_):N(N_), v(2*N-1), m(2*N-1){}
     SegmentTree(size_t N_, const std::vector<ValueType>& init_value):N(N_), v(2*N-1), m(2*N-1){
@@ -193,5 +184,5 @@ private:
 
 }
 
-#pragma pop_macro("ind")
+#pragma pop_macro("indexof")
 #endif
