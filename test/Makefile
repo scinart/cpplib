@@ -23,7 +23,7 @@ ifneq ($(DEBUG), false)
 endif
 
 EXTRA_CXXFLAGS =
-CXXFLAGS += -pipe -std=c++14 -g $(INCLUDE) $(EXTRA_CXXFLAGS)
+CXXFLAGS += -pipe -std=c++17 -g $(INCLUDE) $(EXTRA_CXXFLAGS)
 LDFLAGS += -lrt -ldl -pthread $(DYN_BOOST_LIB)
 LIB = ../src/mylib.a
 
@@ -39,6 +39,9 @@ main-test : $(SRC:%.cpp=%.o)
 	$(CXX) -o $(BINDIR)/$@ $(filter %.o,$^) $(LIB) $(LDFLAGS)
 
 test:
+	./main-test -t segment_tree_test
+
+testall:
 	./main-test --log_level=warning
 
 %.o : %.cpp
