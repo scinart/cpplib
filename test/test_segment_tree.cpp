@@ -27,9 +27,9 @@ BOOST_AUTO_TEST_CASE(range_sum_range_add)
     std::vector<int> v(test_size);
     oy::SegmentTree<int, oy::RangeSumMarkAdd<int> > segtree(test_size);
 
-    oy::RandInt op_gen(1,3);
-    oy::RandInt range_gen(0ul, test_size-1);
-    oy::RandInt value_gen(-5, 5);
+    oy::Rand<int> op_gen(1,3);
+    oy::Rand<int> range_gen(0ul, test_size-1);
+    oy::Rand<int> value_gen(-5, 5);
     for (size_t i = 0; i < test_count; i++) {
         auto b = range_gen.get();
         auto e = range_gen.get();
@@ -69,9 +69,9 @@ BOOST_AUTO_TEST_CASE(range_max_range_reset)
     size_t test_count = 1000;
     std::vector<int> v(test_size);
     oy::SegmentTree<RangeMaxValue<int>, oy::RangeMaxMarkReset<int> > segtree(test_size);
-    oy::RandInt op_gen(1,3);
-    oy::RandInt range_gen(0ul, test_size-1);
-    oy::RandInt value_gen(-5, 5);
+    oy::Rand<int> op_gen(1,3);
+    oy::Rand<int> range_gen(0ul, test_size-1);
+    oy::Rand<int> value_gen(-5, 5);
     for (size_t i = 0; i < test_count; i++) {
         auto b = range_gen.get();
         auto e = range_gen.get();
@@ -111,9 +111,9 @@ BOOST_AUTO_TEST_CASE(range_sum_range_reset)
     size_t test_count = 1000;
     std::vector<int> v(test_size);
     oy::SegmentTree<int, oy::RangeSumMarkReset<int> > segtree(test_size);
-    oy::RandInt op_gen(1,3);
-    oy::RandInt range_gen(0ul, test_size-1);
-    oy::RandInt value_gen(-5, 5);
+    oy::Rand<int> op_gen(1,3);
+    oy::Rand<int> range_gen(0ul, test_size-1);
+    oy::Rand<int> value_gen(-5, 5);
     for (size_t i = 0; i < test_count; i++) {
         auto b = range_gen.get();
         auto e = range_gen.get();

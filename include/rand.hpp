@@ -7,23 +7,46 @@
 namespace oy
 {
 
-template <typename IntType = int>
-class RandInt
+template<typename Numeric, typename Generator = std::default_random_engine>
+class Rand
 {
+    using Distribution = typename std::conditional<
+        std::is_integral<Numeric>::value
+        , std::uniform_int_distribution<Numeric>
+        , std::uniform_real_distribution<Numeric>
+    >::type;
 public:
-    RandInt(IntType a = std::numeric_limits<IntType>::min(),
-            IntType b = std::numeric_limits<IntType>::max())
-        :gen(rd()), dis(a,b){}
-    IntType get() {return dis(gen); }
-    IntType set_range(IntType a, IntType b) { dis = std::uniform_int_distribution<IntType>(a, b); }
-    IntType get(IntType a, IntType b) { return std::uniform_int_distribution<IntType>(a, b)(gen); }
+    Rand():gen(rd()){}
+    template <typename ...Args>
+    Rand(Args... args):gen(rd()), dis(args...){}
+    Numeric operator()() { return get(); }
+    Numeric get() {return dis(gen); }
+    template <typename ...Args>
+    Numeric set_range(Args... args) { dis = Distribution(args...); }
+    template <typename ...Args>
+    Numeric get(Args... args) { return Distribution(args...)(gen); }
+    void seed(typename Generator::result_type val){gen.seed(val);}
     template <class Sseq>
-    void seed(Sseq& seed){gen.seed(seed);}
+    void seed(Sseq& q){gen.seed(q);}
 private:
-    std::random_device rd;  // Will be used to obtain a seed for the random number engine
-    std::mt19937_64 gen;       // Standard mersenne_twister_engine seeded with rd()
-    std::uniform_int_distribution<IntType> dis;
+    std::random_device rd;
+    Generator gen;
+    Distribution dis;
 };
+
+template <typename ContainerIn, typename ContainerOut = ContainerIn>
+inline ContainerOut generateRandomId(const ContainerIn& str, unsigned int length)
+{
+    static_assert(std::is_same<typename std::iterator_traits<decltype(str.begin())>::iterator_category, std::random_access_iterator_tag>::value, "");
+    auto begin = str.begin();
+    auto len = str.end() - str.begin();
+    static thread_local std::default_random_engine randomEngine(std::random_device{}());
+    static thread_local std::uniform_int_distribution<int> randomDistribution(0, len-1);
+    ContainerOut ret;
+    for (unsigned int i = 0; i<length; i++)
+        *std::back_inserter(ret) = *(str.begin() + randomDistribution(randomEngine));
+    return ret;
+}
 
 }
 
