@@ -38,10 +38,9 @@ template <typename ContainerIn, typename ContainerOut = ContainerIn>
 inline ContainerOut generateRandomId(const ContainerIn& str, unsigned int length)
 {
     static_assert(std::is_same<typename std::iterator_traits<decltype(str.begin())>::iterator_category, std::random_access_iterator_tag>::value, "");
-    auto begin = str.begin();
     auto len = str.end() - str.begin();
     static thread_local std::default_random_engine randomEngine(std::random_device{}());
-    static thread_local std::uniform_int_distribution<int> randomDistribution(0, len-1);
+    std::uniform_int_distribution<int> randomDistribution(0, len-1);
     ContainerOut ret;
     for (unsigned int i = 0; i<length; i++)
         *std::back_inserter(ret) = *(str.begin() + randomDistribution(randomEngine));
